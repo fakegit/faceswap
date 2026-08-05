@@ -9,17 +9,13 @@ from importlib import import_module
 # Importing the various tools
 from lib.cli.args import FullHelpArgumentParser
 
-
 # LOCALES
 _LANG = gettext.translation("tools", localedir="locales", fallback=True)
 _ = _LANG.gettext
 
-
 # Python version check
-if sys.version_info[0] < 3:
-    raise Exception("This program requires at least python3.7")
-if sys.version_info[0] == 3 and sys.version_info[1] < 7:
-    raise Exception("This program requires at least python3.7")
+if sys.version_info < (3, 11):
+    raise ValueError("This program requires at least python 3.11")
 
 
 def bad_args(*args):  # pylint:disable=unused-argument
@@ -37,15 +33,12 @@ def _get_cli_opts():
         if os.path.exists(cli_file):
             mod = ".".join(("tools", tool_name, "cli"))
             module = import_module(mod)
-            cliarg_class = getattr(module, "{}Args".format(tool_name.title()))
+            cliarg_class = getattr(module, f"{tool_name.title()}Args")
             help_text = getattr(module, "_HELPTEXT")
             yield tool_name, help_text, cliarg_class
 
 
 if __name__ == "__main__":
-    print(_("Please backup your data and/or test the tool you want to use with a smaller data set "
-            "to make sure you understand how it works."))
-
     PARSER = FullHelpArgumentParser()
     SUBPARSER = PARSER.add_subparsers()
     for tool, helptext, cli_args in _get_cli_opts():

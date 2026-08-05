@@ -3,30 +3,36 @@
 
     Checks for installed Conda / Pip packages and updates accordingly
 """
+import logging
+import os
+import sys
 
-from setup import Environment, Install, Output
+from lib.logger import log_setup
+from lib.utils import get_module_objects
+from setup import Environment, Install
 
-_LOGGER = None
-
-
-def output(msg):
-    """ Output to print or logger """
-    if _LOGGER is not None:
-        _LOGGER.info(msg)
-    else:
-        Output().info(msg)
+logger = logging.getLogger(__name__)
 
 
-def main(logger=None):
-    """ Check for and update dependencies """
-    if logger is not None:
-        global _LOGGER  # pylint:disable=global-statement
-        _LOGGER = logger
-    output("Updating dependencies...")
-    update = Environment(logger=logger, updater=True)
-    Install(update)
-    output("Dependencies updated")
+def update(is_gui=False) -> None:
+    """ Check for and update dependencies
+
+    Parameters
+    ----------
+    is_gui: bool, optional
+        ``True`` if being called by the GUI. Prevents the updater from outputting progress bars
+        which get scrambled in the GUI
+    """
+    logger.info("Updating dependencies...")
+    updater = Environment(updater=True)
+    Install(updater, is_gui=is_gui)
+    logger.info("Dependencies updated")
 
 
 if __name__ == "__main__":
-    main()
+    logfile = os.path.join(os.path.dirname(os.path.realpath(sys.argv[0])), "faceswap_update.log")
+    log_setup("INFO", logfile, "setup")
+    update()
+
+
+__all__ = get_module_objects(__name__)

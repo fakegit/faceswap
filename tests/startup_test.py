@@ -2,34 +2,38 @@
 """ Sanity checks for Faceswap. """
 
 import inspect
+import sys
 
 import pytest
+import keras
+import torch
 
 from lib.utils import get_backend
+from lib.system.system import VALID_KERAS, VALID_PYTHON, VALID_TORCH
 
-if get_backend() == "amd":
-    import keras
-    from keras import backend as K
-else:
-    # Ignore linting errors from Tensorflow's thoroughly broken import system
-    from tensorflow import keras
-    from tensorflow.keras import backend as K  # pylint:disable=import-error
+_BACKEND = get_backend().upper()
 
-
-_BACKEND = get_backend()
+_LIBS = (VALID_KERAS + (keras.__version__, ),
+         VALID_PYTHON + (sys.version, ),
+         VALID_TORCH + (torch.__version__, ))
+_IDS = [f"{x}[{_BACKEND}" for x in ("keras", "python", "torch")]
 
 
-@pytest.mark.parametrize('dummy', [None], ids=[get_backend().upper()])
+@pytest.mark.parametrize(["min_vers", "max_vers", "installed_vers"], _LIBS, ids=_IDS)
+def test_libraries(min_vers: tuple[int, int],
+                   max_vers: tuple[int, int],
+                   installed_vers: str) -> None:
+    """ Sanity check to ensure that we are running on a valid libraries """
+    installed = tuple(int(x) for x in installed_vers.split(".")[:2])
+    assert min_vers <= installed <= max_vers
+
+
+@pytest.mark.parametrize('dummy', [None], ids=[_BACKEND])
 def test_backend(dummy):  # pylint:disable=unused-argument
     """ Sanity check to ensure that Keras backend is returning the correct object type. """
-    test_var = K.variable((1, 1, 4, 4))
-    lib = inspect.getmodule(test_var).__name__.split(".")[0]
-    assert (_BACKEND == "cpu" and lib == "tensorflow") or (_BACKEND == "amd" and lib == "plaidml")
-
-
-@pytest.mark.parametrize('dummy', [None], ids=[get_backend().upper()])
-def test_keras(dummy):  # pylint:disable=unused-argument
-    """ Sanity check to ensure that tensorflow keras is being used for CPU and standard
-    keras for AMD. """
-    assert ((_BACKEND == "cpu" and keras.__version__ in ("2.4.0", "2.6.0", "2.7.0", "2.8.0")) or
-            (_BACKEND == "amd" and keras.__version__ == "2.2.4"))
+    with keras.device("cpu"):
+        test_var = keras.Variable((1, 1, 4, 4), trainable=False)
+    mod = inspect.getmodule(test_var)
+    assert mod is not None
+    lib = mod.__name__.split(".")[0]
+    assert lib == "keras"

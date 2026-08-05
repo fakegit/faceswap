@@ -13,14 +13,15 @@ from io import BytesIO
 
 import numpy as np
 
-from lib.utils import FaceswapError
+from lib.utils import FaceswapError, get_module_objects
 
 try:
     import yaml
+    _HAS_YAML = True
 except ImportError:
-    yaml = None
+    _HAS_YAML = False
 
-logger = logging.getLogger(__name__)  # pylint: disable=invalid-name
+logger = logging.getLogger(__name__)
 
 
 class Serializer():
@@ -72,13 +73,13 @@ class Serializer():
             with open(filename, self._write_option) as s_file:
                 s_file.write(self.marshal(data))
         except IOError as err:
-            msg = "Error writing to '{}': {}".format(filename, err.strerror)
+            msg = f"Error writing to '{filename}': {err.strerror}"
             raise FaceswapError(msg) from err
 
     def _check_extension(self, filename):
         """ Check the filename has an extension. If not add the correct one for the serializer """
         extension = os.path.splitext(filename)[1]
-        retval = filename if extension else "{}.{}".format(filename, self.file_extension)
+        retval = filename if extension else f"{filename}.{self.file_extension}"
         logger.debug("Original filename: '%s', final filename: '%s'", filename, retval)
         return retval
 
@@ -109,7 +110,7 @@ class Serializer():
                 retval = self.unmarshal(data)
 
         except IOError as err:
-            msg = "Error reading from '{}': {}".format(filename, err.strerror)
+            msg = f"Error reading from '{filename}': {err.strerror}"
             raise FaceswapError(msg) from err
         logger.debug("data type: %s", type(retval))
         return retval
@@ -137,7 +138,7 @@ class Serializer():
         try:
             retval = self._marshal(data)
         except Exception as err:
-            msg = "Error serializing data for type {}: {}".format(type(data), str(err))
+            msg = f"Error serializing data for type {type(data)}: {str(err)}"
             raise FaceswapError(msg) from err
         logger.debug("returned data type: %s", type(retval))
         return retval
@@ -165,19 +166,16 @@ class Serializer():
         try:
             retval = self._unmarshal(serialized_data)
         except Exception as err:
-            msg = "Error unserializing data for type {}: {}".format(type(serialized_data),
-                                                                    str(err))
+            msg = f"Error unserializing data for type {type(serialized_data)}: {str(err)}"
             raise FaceswapError(msg) from err
         logger.debug("returned data type: %s", type(retval))
         return retval
 
-    @classmethod
-    def _marshal(cls, data):
+    def _marshal(self, data):
         """ Override for serializer specific marshalling """
         raise NotImplementedError()
 
-    @classmethod
-    def _unmarshal(cls, data):
+    def _unmarshal(self, data):
         """ Override for serializer specific unmarshalling """
         raise NotImplementedError()
 
@@ -188,13 +186,11 @@ class _YAMLSerializer(Serializer):
         super().__init__()
         self._file_extension = "yml"
 
-    @classmethod
-    def _marshal(cls, data):
+    def _marshal(self, data):
         return yaml.dump(data, default_flow_style=False).encode("utf-8")
 
-    @classmethod
-    def _unmarshal(cls, data):
-        return yaml.load(data.decode("utf-8"), Loader=yaml.FullLoader)
+    def _unmarshal(self, data):
+        return yaml.load(data.decode("utf-8", errors="replace"), Loader=yaml.FullLoader)
 
 
 class _JSONSerializer(Serializer):
@@ -203,13 +199,11 @@ class _JSONSerializer(Serializer):
         super().__init__()
         self._file_extension = "json"
 
-    @classmethod
-    def _marshal(cls, data):
+    def _marshal(self, data):
         return json.dumps(data, indent=2).encode("utf-8")
 
-    @classmethod
-    def _unmarshal(cls, data):
-        return json.loads(data.decode("utf-8"))
+    def _unmarshal(self, data):
+        return json.loads(data.decode("utf-8", errors="replace"))
 
 
 class _PickleSerializer(Serializer):
@@ -218,12 +212,10 @@ class _PickleSerializer(Serializer):
         super().__init__()
         self._file_extension = "pickle"
 
-    @classmethod
-    def _marshal(cls, data):
+    def _marshal(self, data):
         return pickle.dumps(data)
 
-    @classmethod
-    def _unmarshal(cls, data):
+    def _unmarshal(self, data):
         return pickle.loads(data)
 
 
@@ -260,13 +252,13 @@ class _CompressedSerializer(Serializer):
 
     def _marshal(self, data):
         """ Pickle and compress data """
-        data = self._child._marshal(data)  # pylint: disable=protected-access
+        data = self._child._marshal(data)  # pylint:disable=protected-access
         return zlib.compress(data)
 
     def _unmarshal(self, data):
         """ Decompress and unpicke data """
         data = zlib.decompress(data)
-        return self._child._unmarshal(data)  # pylint: disable=protected-access
+        return self._child._unmarshal(data)  # pylint:disable=protected-access
 
 
 def get_serializer(serializer):
@@ -286,6 +278,7 @@ def get_serializer(serializer):
     -------
     >>> serializer = get_serializer('json')
     """
+    retval = None
     if serializer.lower() == "npy":
         retval = _NPYSerializer()
     elif serializer.lower() == "compressed":
@@ -294,9 +287,9 @@ def get_serializer(serializer):
         retval = _JSONSerializer()
     elif serializer.lower() == "pickle":
         retval = _PickleSerializer()
-    elif serializer.lower() == "yaml" and yaml is not None:
+    elif serializer.lower() == "yaml" and _HAS_YAML:
         retval = _YAMLSerializer()
-    elif serializer.lower() == "yaml" and yaml is None:
+    elif serializer.lower() == "yaml":
         logger.warning("You must have PyYAML installed to use YAML as the serializer."
                        "Switching to JSON as the serializer.")
         retval = _JSONSerializer
@@ -336,9 +329,9 @@ def get_serializer_from_filename(filename):
         retval = _NPYSerializer()
     elif extension == ".fsa":
         retval = _CompressedSerializer()
-    elif extension in (".yaml", ".yml") and yaml is not None:
+    elif extension in (".yaml", ".yml") and _HAS_YAML:
         retval = _YAMLSerializer()
-    elif extension in (".yaml", ".yml") and yaml is None:
+    elif extension in (".yaml", ".yml"):
         logger.warning("You must have PyYAML installed to use YAML as the serializer.\n"
                        "Switching to JSON as the serializer.")
         retval = _JSONSerializer()
@@ -347,3 +340,6 @@ def get_serializer_from_filename(filename):
         retval = _JSONSerializer()
     logger.debug(retval)
     return retval
+
+
+__all__ = get_module_objects(__name__)

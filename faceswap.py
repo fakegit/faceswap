@@ -1,23 +1,28 @@
 #!/usr/bin/env python3
 """ The master faceswap.py script """
 import gettext
+import locale
+import os
 import sys
 
-from lib.cli import args as cli_args
-from lib.config import generate_configs
-from lib.utils import get_backend
+# Translations don't work by default in Windows, so hack in environment variable
+if sys.platform.startswith("win"):
+    import ctypes
+    windll = ctypes.windll.kernel32
+    os.environ["LANG"] = locale.windows_locale[windll.GetUserDefaultUILanguage()]
 
+from lib.cli import args as cli_args  # pylint:disable=wrong-import-position
+from lib.cli.args_train import TrainArgs  # pylint:disable=wrong-import-position
+from lib.cli.args_extract_convert import ConvertArgs, ExtractArgs  # noqa:E501 pylint:disable=wrong-import-position
+from lib.config import generate_configs  # pylint:disable=wrong-import-position
+from lib.system import System  # pylint:disable=wrong-import-position
 
 # LOCALES
 _LANG = gettext.translation("faceswap", localedir="locales", fallback=True)
 _ = _LANG.gettext
 
-
-if sys.version_info < (3, 7):
-    raise Exception("This program requires at least python3.7")
-if get_backend() == "amd" and sys.version_info >= (3, 9):
-    raise Exception("The AMD version of Faceswap cannot run on versions of Python higher than 3.8")
-
+system = System()
+system.validate_python()
 
 _PARSER = cli_args.FullHelpArgumentParser()
 
@@ -41,11 +46,11 @@ def _main() -> None:
     generate_configs()
 
     subparser = _PARSER.add_subparsers()
-    cli_args.ExtractArgs(subparser, "extract", _("Extract the faces from pictures or a video"))
-    cli_args.TrainArgs(subparser, "train", _("Train a model for the two faces A and B"))
-    cli_args.ConvertArgs(subparser,
-                         "convert",
-                         _("Convert source pictures or video to a new one with the face swapped"))
+    ExtractArgs(subparser, "extract", _("Extract the faces from pictures or a video"))
+    TrainArgs(subparser, "train", _("Train a model for the two faces A and B"))
+    ConvertArgs(subparser,
+                "convert",
+                _("Convert source pictures or video to a new one with the face swapped"))
     cli_args.GuiArgs(subparser, "gui", _("Launch the Faceswap Graphical User Interface"))
     _PARSER.set_defaults(func=_bad_args)
     arguments = _PARSER.parse_args()

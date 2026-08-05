@@ -1,72 +1,54 @@
-*************
-align package
-*************
+*****************
+lib.align package
+*****************
 
 The align Package handles detected faces, their alignments and masks.
 
 .. contents:: Contents
    :local:
+   :depth: 2
 
-aligned\_face module
-====================
+.. automodapi:: lib.align.aligned_face
+   :include-all-objects:
+   :no-inheritance-diagram:
 
-Handles aligned faces and corresponding pose estimates
+|
+.. automodapi:: lib.align.aligned_mask
+   :include-all-objects:
 
-.. rubric:: Module Summary
+|
+.. automodapi:: lib.align.aligned_utils
+   :include-all-objects:
 
-.. autosummary::
-   :nosignatures:
-   
-   ~lib.align.aligned_face.AlignedFace
-   ~lib.align.aligned_face.get_matrix_scaling
-   ~lib.align.aligned_face.PoseEstimate
-   ~lib.align.aligned_face.transform_image
+|
+.. automodapi:: lib.align.alignments
+   :include-all-objects:
+   :no-inheritance-diagram:
 
-.. rubric:: Module
+|
+.. automodapi:: lib.align.constants
+   :include-all-objects:
 
-.. automodule:: lib.align.aligned_face
-   :members:
-   :undoc-members:
-   :show-inheritance:
+|
+.. automodapi:: lib.align.detected_face
+   :include-all-objects:
+   :no-inheritance-diagram:
 
-alignments module
-=================
+|
+.. automodapi:: lib.align.objects
+   :include-all-objects:
+   :no-inheritance-diagram:
 
-Handles alignments stored in a serialized alignments.fsa file
+|
+.. automodapi:: lib.align.pose
+   :include-all-objects:
+   :no-inheritance-diagram:
 
-.. rubric:: Module Summary
+|
+.. automodapi:: lib.align.thumbnails
+   :include-all-objects:
+   :no-inheritance-diagram:
 
-.. autosummary::
-   :nosignatures:
-   
-   ~lib.align.alignments.Alignments
-   ~lib.align.alignments.Thumbnails
-
-.. rubric:: Module
-
-.. automodule:: lib.align.alignments
-   :members:
-   :undoc-members:
-   :show-inheritance:
-
-detected\_face module
-=====================
-
-Handles detected face objects and their associated masks.
-
-.. rubric:: Module Summary
-
-.. autosummary::
-   :nosignatures:
-   
-   ~lib.align.detected_face.BlurMask
-   ~lib.align.detected_face.DetectedFace
-   ~lib.align.detected_face.Mask
-   ~lib.align.detected_face.update_legacy_png_header
-
-.. rubric:: Module
-
-.. automodule:: lib.align.detected_face
-   :members:
-   :undoc-members:
-   :show-inheritance:
+|
+.. automodapi:: lib.align.updater
+   :include-all-objects:

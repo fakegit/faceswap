@@ -1,57 +1,75 @@
-**************
-manual package
-**************
+********************
+tools.manual package
+********************
 
 .. contents:: Contents
    :local:
+   :depth: 2
 
-Subpackages
-===========
-The following subpackages handle the main two display areas of the Manual Tool's GUI.
+manual.face_viewer package
+=========================
 
-.. toctree::
-   :maxdepth: 4
+.. automodapi:: tools.manual.face_viewer.frame
+   :include-all-objects:
 
-   manual.faceviewer
-   manual.frameviewer
+|
+.. automodapi:: tools.manual.face_viewer.interact
+   :include-all-objects:
+   :no-inheritance-diagram:
 
-manual module
-=============
-The Manual Module is the main entry point into the Manual Editor Tool.
+|
+.. automodapi:: tools.manual.face_viewer.viewport
+   :include-all-objects:
+   :no-inheritance-diagram:
 
-.. rubric:: Module Summary
+manual.frame_viewer package
+==========================
 
-.. autosummary::
-   :nosignatures:
-   
-   ~tools.manual.manual.Aligner
-   ~tools.manual.manual.FrameLoader
-   ~tools.manual.manual.Manual
-   ~tools.manual.manual.TkGlobals
+.. automodapi:: tools.manual.frame_viewer.control
+   :include-all-objects:
+   :no-inheritance-diagram:
 
-.. rubric:: Module
+|
+.. automodapi:: tools.manual.frame_viewer.frame
+   :include-all-objects:
 
-.. automodule:: tools.manual.manual
-   :members:
-   :undoc-members:
-   :show-inheritance:
+|
+.. automodapi:: tools.manual.frame_viewer.editor.bounding_box
+   :include-all-objects:
 
-detected_faces module
-=====================
+|
+.. automodapi:: tools.manual.frame_viewer.editor.extract_box
+   :include-all-objects:
 
-.. rubric:: Module Summary
+|
+.. automodapi:: tools.manual.frame_viewer.editor.landmarks
+   :include-all-objects:
 
-.. autosummary::
-   :nosignatures:
-   
-   ~tools.manual.detected_faces.DetectedFaces
-   ~tools.manual.detected_faces.FaceUpdate
-   ~tools.manual.detected_faces.Filter
-   ~tools.manual.detected_faces.ThumbsCreator
+|
+.. automodapi:: tools.manual.frame_viewer.editor.mask
+   :include-all-objects:
 
-.. rubric:: Module
+manual package
+==========================
 
-.. automodule:: tools.manual.detected_faces
-   :members:
-   :undoc-members:
-   :show-inheritance:
+.. automodapi:: tools.manual.cli
+   :include-all-objects:
+
+|
+.. automodapi:: tools.manual.detected_faces
+   :include-all-objects:
+   :no-inheritance-diagram:
+
+|
+.. automodapi:: tools.manual.globals
+   :include-all-objects:
+   :no-inheritance-diagram:
+
+|
+.. automodapi:: tools.manual.manual
+   :include-all-objects:
+
+|
+.. automodapi:: tools.manual.thumbnails
+   :include-all-objects:
+   :no-inheritance-diagram:

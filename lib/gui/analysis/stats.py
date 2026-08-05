@@ -5,25 +5,27 @@ Holds the globally loaded training session. This will either be a user selected 
 the analysis tab) or the currently training session.
 
 """
-
+from __future__ import annotations
 import logging
-import time
 import os
+import time
+import typing as T
 import warnings
 
 from math import ceil
 from threading import Event
-from typing import List, Optional, Tuple, Union
-from typing_extensions import Self
 
 import numpy as np
 
+from lib.logger import parse_class_init
 from lib.serializer import get_serializer
-from lib.utils import get_backend
+from lib.utils import get_module_objects
+
+from .moving_average import ExponentialMovingAverage
 
 from .event_reader import TensorBoardLogs
 
-logger = logging.getLogger(__name__)  # pylint: disable=invalid-name
+logger = logging.getLogger(__name__)
 
 
 class GlobalSession():
@@ -32,13 +34,13 @@ class GlobalSession():
     :attr:`lib.gui.analysis.Session`
     """
     def __init__(self) -> None:
-        logger.debug("Initializing %s", self.__class__.__name__)
-        self._state = None
-        self._model_dir = None
-        self._model_name = None
+        logger.debug(parse_class_init(locals()))
+        self._state: dict[str, T.Any] = {}
+        self._model_dir = ""
+        self._model_name = ""
 
-        self._tb_logs = None
-        self._summary = None
+        self._tb_logs: TensorBoardLogs | None = None
+        self._summary: SessionsSummary | None = None
 
         self._is_training = False
         self._is_querying = Event()
@@ -48,7 +50,7 @@ class GlobalSession():
     @property
     def is_loaded(self) -> bool:
         """ bool: ``True`` if session data is loaded otherwise ``False`` """
-        return self._model_dir is not None
+        return bool(self._model_dir)
 
     @property
     def is_training(self) -> bool:
@@ -62,29 +64,38 @@ class GlobalSession():
         return os.path.join(self._model_dir, self._model_name)
 
     @property
-    def batch_sizes(self) -> dict:
+    def have_session_data(self) -> bool:
+        """ bool : ``True`` if session data is available otherwise ``False`` """
+        return bool(self._state and self._state["sessions"])
+
+    @property
+    def batch_sizes(self) -> dict[int, int]:
         """ dict: The batch sizes for each session_id for the model. """
-        if self._state is None:
+        if not self.have_session_data:
             return {}
         return {int(sess_id): sess["batchsize"]
                 for sess_id, sess in self._state.get("sessions", {}).items()}
 
     @property
-    def full_summary(self) -> List[dict]:
+    def full_summary(self) -> list[dict]:
         """ list: List of dictionaries containing summary statistics for each session id. """
+        assert self._summary is not None
         return self._summary.get_summary_stats()
 
     @property
     def logging_disabled(self) -> bool:
-        """ bool: ``True`` if logging is enabled for the currently training session otherwise
+        """ bool: ``True`` if logging is disabled for the currently training session otherwise
         ``False``. """
-        if self._state is None:
+        if not self.have_session_data:
             return True
-        return self._state["sessions"][str(self.session_ids[-1])]["no_logs"]
+        max_id = str(max(int(idx) for idx in self._state["sessions"]))
+        return self._state["sessions"][max_id]["no_logs"]
 
     @property
-    def session_ids(self) -> List[int]:
+    def session_ids(self) -> list[int]:
         """ list: The sorted list of all existing session ids in the state file """
+        if self._tb_logs is None:
+            return []
         return self._tb_logs.session_ids
 
     def _load_state_file(self) -> None:
@@ -96,8 +107,8 @@ class GlobalSession():
         logger.debug("Loaded state: %s", self._state)
 
     def initialize_session(self,
-                           model_folder: Optional[str],
-                           model_name: Optional[str],
+                           model_folder: str,
+                           model_name: str,
                            is_training: bool = False) -> None:
         """ Initialize a Session.
 
@@ -106,12 +117,14 @@ class GlobalSession():
 
         Parameters
         ----------
-        model_folder: str, optional
+        model_folder: str,
             If loading a session manually (e.g. for the analysis tab), then the path to the model
-            folder must be provided. For training sessions, this should be left at ``None``
+            folder must be provided. For training sessions, this should be passed through from the
+            launcher
         model_name: str, optional
             If loading a session manually (e.g. for the analysis tab), then the model filename
-            must be provided. For training sessions, this should be left at ``None``
+            must be provided. For training sessions, this should be passed through from the
+            launcher
         is_training: bool, optional
             ``True`` if the session is being initialized for a training session, otherwise
             ``False``. Default: ``False``
@@ -120,19 +133,24 @@ class GlobalSession():
 
         if self._model_dir == model_folder and self._model_name == model_name:
             if is_training:
-                self._tb_logs.set_training(is_training)
+                assert self._tb_logs is not None
+                if not self._tb_logs.set_training(is_training):
+                    logger.debug("Resetting summary for updated log files")
+                    self._summary = SessionsSummary(self)
                 self._load_state_file()
-                self._is_training = True
-            logger.debug("Requested session is already loaded. Not initializing: (model_folder: "
-                         "%s, model_name: %s)", model_folder, model_name)
+                self._is_training = is_training
+            logger.debug("Requested session is already loaded. Not initializing: "
+                         "(model_folder: %s, model_name: %s)", model_folder, model_name)
             return
 
         self._is_training = is_training
         self._model_dir = model_folder
         self._model_name = model_name
         self._load_state_file()
-        self._tb_logs = TensorBoardLogs(os.path.join(self._model_dir, f"{self._model_name}_logs"),
-                                        is_training)
+        if not self.logging_disabled:
+            self._tb_logs = TensorBoardLogs(os.path.join(self._model_dir,
+                                                         f"{self._model_name}_logs"),
+                                            is_training)
 
         self._summary = SessionsSummary(self)
         logger.debug("Initialized session. Session_IDS: %s", self.session_ids)
@@ -146,8 +164,8 @@ class GlobalSession():
     def clear(self) -> None:
         """ Clear the currently loaded session. """
         self._state = {}
-        self._model_dir = None
-        self._model_name = None
+        self._model_dir = ""
+        self._model_name = ""
 
         del self._tb_logs
         self._tb_logs = None
@@ -157,7 +175,7 @@ class GlobalSession():
 
         self._is_training = False
 
-    def get_loss(self, session_id: Optional[int]) -> dict:
+    def get_loss(self, session_id: int | None) -> dict[str, np.ndarray]:
         """ Obtain the loss values for the given session_id.
 
         Parameters
@@ -176,13 +194,15 @@ class GlobalSession():
         if self._is_training:
             self._is_querying.set()
 
+        assert self._tb_logs is not None
         loss_dict = self._tb_logs.get_loss(session_id=session_id)
         if session_id is None:
-            retval = {}
+            all_loss: dict[str, list[float]] = {}
             for key in sorted(loss_dict):
                 for loss_key, loss in loss_dict[key].items():
-                    retval.setdefault(loss_key, []).extend(loss)
-            retval = {key: np.array(val, dtype="float32") for key, val in retval.items()}
+                    all_loss.setdefault(loss_key, []).extend(loss)
+            retval: dict[str, np.ndarray] = {key: np.array(val, dtype="float32")
+                                             for key, val in all_loss.items()}
         else:
             retval = loss_dict.get(session_id, {})
 
@@ -190,7 +210,15 @@ class GlobalSession():
             self._is_querying.clear()
         return retval
 
-    def get_timestamps(self, session_id: Optional[int]) -> Union[dict, np.ndarray]:
+    @T.overload
+    def get_timestamps(self, session_id: None) -> dict[int, np.ndarray]:
+        ...
+
+    @T.overload
+    def get_timestamps(self, session_id: int) -> np.ndarray:
+        ...
+
+    def get_timestamps(self, session_id):
         """ Obtain the time stamps keys for the given session_id.
 
         Parameters
@@ -201,7 +229,7 @@ class GlobalSession():
 
         Returns
         -------
-        dict or :class:`numpy.ndarray`
+        dict[int] or :class:`numpy.ndarray`
             If a session ID has been given then a single :class:`numpy.ndarray` will be returned
             with the session's time stamps. Otherwise a 'dict' will be returned with the session
             IDs as key with :class:`numpy.ndarray` of timestamps as values
@@ -211,6 +239,7 @@ class GlobalSession():
         if self._is_training:
             self._is_querying.set()
 
+        assert self._tb_logs is not None
         retval = self._tb_logs.get_timestamps(session_id=session_id)
         if session_id is not None:
             retval = retval[session_id]
@@ -229,7 +258,7 @@ class GlobalSession():
                 continue
             break
 
-    def get_loss_keys(self, session_id: Optional[int]) -> List[str]:
+    def get_loss_keys(self, session_id: int | None) -> list[str]:
         """ Obtain the loss keys for the given session_id.
 
         Parameters
@@ -244,28 +273,24 @@ class GlobalSession():
             The loss keys for the given session. If ``None`` is passed as session_id then a unique
             list of all loss keys for all sessions is returned
         """
-        if get_backend() == "amd":
-            # We can't log the graph in Tensorboard logs for AMD so need to obtain from state file
-            loss_keys = {int(sess_id): [name for name in session["loss_names"] if name != "total"]
-                         for sess_id, session in self._state["sessions"].items()}
-        else:
-            loss_keys = {sess_id: list(logs.keys())
-                         for sess_id, logs
-                         in self._tb_logs.get_loss(session_id=session_id).items()}
+        assert self._tb_logs is not None
+        loss_keys = {sess_id: list(logs.keys())
+                     for sess_id, logs
+                     in self._tb_logs.get_loss(session_id=session_id).items()}
 
         if session_id is None:
-            retval = list(set(loss_key
-                              for session in loss_keys.values()
-                              for loss_key in session))
+            retval: list[str] = list(set(loss_key
+                                         for session in loss_keys.values()
+                                         for loss_key in session))
         else:
-            retval = loss_keys.get(session_id)
+            retval = loss_keys.get(session_id, [])
         return retval
 
 
 _SESSION = GlobalSession()
 
 
-class SessionsSummary():  # pylint:disable=too-few-public-methods
+class SessionsSummary():
     """ Performs top level summary calculations for each session ID within the loaded or currently
     training Session for display in the Analysis tree view.
 
@@ -275,15 +300,15 @@ class SessionsSummary():  # pylint:disable=too-few-public-methods
         The loaded or currently training session
     """
     def __init__(self, session: GlobalSession) -> None:
-        logger.debug("Initializing %s: (session: %s)", self.__class__.__name__, session)
+        logger.debug(parse_class_init(locals()))
         self._session = session
         self._state = session._state
 
-        self._time_stats = None
-        self._per_session_stats = None
+        self._time_stats: dict[int, dict[str, float | int]] = {}
+        self._per_session_stats: list[dict[str, T.Any]] = []
         logger.debug("Initialized %s", self.__class__.__name__)
 
-    def get_summary_stats(self) -> List[dict]:
+    def get_summary_stats(self) -> list[dict]:
         """ Compile the individual session statistics and calculate the total.
 
         Format the stats for display
@@ -296,6 +321,10 @@ class SessionsSummary():  # pylint:disable=too-few-public-methods
             within the loaded data as well as the totals.
         """
         logger.debug("Compiling sessions summary data")
+        if not self._session.have_session_data:
+            logger.debug("Session data doesn't exist. Most likely task has been "
+                         "terminated during compilation, or is from LR finder")
+            return []
         self._get_time_stats()
         self._get_per_session_stats()
         if not self._per_session_stats:
@@ -315,25 +344,26 @@ class SessionsSummary():  # pylint:disable=too-few-public-methods
         If the main Session is currently training, then the training session ID is updated with the
         latest stats.
         """
-        if self._time_stats is None:
+        if not self._time_stats:
             logger.debug("Collating summary time stamps")
 
             self._time_stats = {
-                sess_id: dict(start_time=np.min(timestamps) if np.any(timestamps) else 0,
-                              end_time=np.max(timestamps) if np.any(timestamps) else 0,
-                              iterations=timestamps.shape[0] if np.any(timestamps) else 0)
-                for sess_id, timestamps in self._session.get_timestamps(None).items()}
+                sess_id: {"start_time": np.min(timestamps) if np.any(timestamps) else 0,
+                          "end_time": np.max(timestamps) if np.any(timestamps) else 0,
+                          "iterations": timestamps.shape[0] if np.any(timestamps) else 0}
+                for sess_id, timestamps in T.cast(dict[int, np.ndarray],
+                                                  self._session.get_timestamps(None)).items()}
 
         elif _SESSION.is_training:
             logger.debug("Updating summary time stamps for training session")
 
             session_id = _SESSION.session_ids[-1]
-            latest = self._session.get_timestamps(session_id)
+            latest = T.cast(np.ndarray, self._session.get_timestamps(session_id))
 
-            self._time_stats[session_id] = dict(
-                start_time=np.min(latest) if np.any(latest) else 0,
-                end_time=np.max(latest) if np.any(latest) else 0,
-                iterations=latest.shape[0] if np.any(latest) else 0)
+            self._time_stats[session_id] = {
+                "start_time": np.min(latest) if np.any(latest) else 0,
+                "end_time": np.max(latest) if np.any(latest) else 0,
+                "iterations": latest.shape[0] if np.any(latest) else 0}
 
         logger.debug("time_stats: %s", self._time_stats)
 
@@ -344,14 +374,14 @@ class SessionsSummary():  # pylint:disable=too-few-public-methods
 
         If a training session is running, then updates the training sessions stats only.
         """
-        if self._per_session_stats is None:
+        if not self._per_session_stats:
             logger.debug("Collating per session stats")
             compiled = []
             for session_id in self._time_stats:
                 logger.debug("Compiling session ID: %s", session_id)
-                if self._state is None:
-                    logger.debug("Session state dict doesn't exist. Most likely task has been "
-                                 "terminated during compilation")
+                if not self._session.have_session_data:
+                    logger.debug("Session data doesn't exist. Most likely task has been "
+                                 "terminated during compilation, or is from LR finder")
                     return
                 compiled.append(self._collate_stats(session_id))
 
@@ -367,15 +397,17 @@ class SessionsSummary():  # pylint:disable=too-few-public-methods
 
             stats = self._per_session_stats[-1]
 
-            stats["start"] = ts_data["start_time"]
-            stats["end"] = ts_data["end_time"]
-            stats["elapsed"] = int(stats["end"] - stats["start"])
+            start = np.nan_to_num(ts_data["start_time"])
+            end = np.nan_to_num(ts_data["end_time"])
+            stats["start"] = start
+            stats["end"] = end
+            stats["elapsed"] = int(end - start)
             stats["iterations"] = ts_data["iterations"]
             stats["rate"] = (((stats["batch"] * 2) * stats["iterations"])
-                             / stats["elapsed"] if stats["elapsed"] != 0 else 0)
+                             / stats["elapsed"] if stats["elapsed"] > 0 else 0)
         logger.debug("per_session_stats: %s", self._per_session_stats)
 
-    def _collate_stats(self, session_id: int) -> dict:
+    def _collate_stats(self, session_id: int) -> dict[str, int | float]:
         """ Collate the session summary statistics for the given session ID.
 
         Parameters
@@ -389,31 +421,36 @@ class SessionsSummary():  # pylint:disable=too-few-public-methods
             The collated session summary statistics
         """
         timestamps = self._time_stats[session_id]
-        elapsed = int(timestamps["end_time"] - timestamps["start_time"])
+        start = np.nan_to_num(timestamps["start_time"])
+        end = np.nan_to_num(timestamps["end_time"])
+        elapsed = int(end - start)
         batchsize = self._session.batch_sizes.get(session_id, 0)
-        retval = dict(
-            session=session_id,
-            start=timestamps["start_time"],
-            end=timestamps["end_time"],
-            elapsed=elapsed,
-            rate=(((batchsize * 2) * timestamps["iterations"]) / elapsed if elapsed != 0 else 0),
-            batch=batchsize,
-            iterations=timestamps["iterations"])
+        retval = {
+            "session": session_id,
+            "start": start,
+            "end": end,
+            "elapsed": elapsed,
+            "rate": (((batchsize * 2) * timestamps["iterations"]) / elapsed
+                     if elapsed != 0 else 0),
+            "batch": batchsize,
+            "iterations": timestamps["iterations"]}
         logger.debug(retval)
         return retval
 
-    def _total_stats(self) -> dict:
+    def _total_stats(self) -> dict[str, str | int | float]:
         """ Compile the Totals stats.
         Totals are fully calculated each time as they will change on the basis of the training
         session.
 
         Returns
         -------
-        dict:
+        dict
             The Session name, start time, end time, elapsed time, rate, batch size and number of
             iterations for all session ids within the loaded data.
         """
         logger.debug("Compiling Totals")
+        starttime = 0.0
+        endtime = 0.0
         elapsed = 0
         examples = 0
         iterations = 0
@@ -429,17 +466,18 @@ class SessionsSummary():  # pylint:disable=too-few-public-methods
             batchset.add(summary["batch"])
             iterations += summary["iterations"]
         batch = ",".join(str(bs) for bs in batchset)
-        totals = {"session": "Total",
-                  "start": starttime,
-                  "end": endtime,
-                  "elapsed": elapsed,
-                  "rate": examples / elapsed if elapsed != 0 else 0,
-                  "batch": batch,
-                  "iterations": iterations}
+        totals: dict[str, str | int | float] = {
+            "session": "Total",
+            "start": starttime,
+            "end": endtime,
+            "elapsed": elapsed,
+            "rate": examples / elapsed if elapsed != 0 else 0,
+            "batch": batch,
+            "iterations": iterations}
         logger.debug(totals)
         return totals
 
-    def _format_stats(self, compiled_stats: List[dict]) -> List[dict]:
+    def _format_stats(self, compiled_stats: list[dict]) -> list[dict]:
         """ Format for the incoming list of statistics for display.
 
         Parameters
@@ -469,7 +507,7 @@ class SessionsSummary():  # pylint:disable=too-few-public-methods
         return retval
 
     @classmethod
-    def _convert_time(cls, timestamp: float) -> Tuple[str, str, str]:
+    def _convert_time(cls, timestamp: float) -> tuple[str, str, str]:
         """ Convert time stamp to total hours, minutes and seconds.
 
         Parameters
@@ -482,8 +520,8 @@ class SessionsSummary():  # pylint:disable=too-few-public-methods
         tuple
             (`hours`, `minutes`, `seconds`) as strings
         """
-        hrs = int(timestamp // 3600)
-        hrs = f"{hrs:02d}" if hrs < 10 else str(hrs)
+        ihrs = int(timestamp // 3600)
+        hrs = f"{ihrs:02d}" if ihrs < 10 else str(ihrs)
         mins = f"{(int(timestamp % 3600) // 60):02d}"
         secs = f"{(int(timestamp % 3600) % 60):02d}"
         return hrs, mins, secs
@@ -512,19 +550,15 @@ class Calculations():
         ``True`` if values significantly away from the average should be excluded, otherwise
         ``False``. Default: ``False``
     """
-    def __init__(self, session_id,
+    def __init__(self, session_id,  # pylint:disable=too-many-positional-arguments
                  display: str = "loss",
-                 loss_keys: str = "loss",
-                 selections: str = "raw",
+                 loss_keys: list[str] | str = "loss",
+                 selections: list[str] | str = "raw",
                  avg_samples: int = 500,
                  smooth_amount: float = 0.90,
                  flatten_outliers: bool = False) -> None:
-        logger.debug("Initializing %s: (session_id: %s, display: %s, loss_keys: %s, "
-                     "selections: %s, avg_samples: %s, smooth_amount: %s, flatten_outliers: %s)",
-                     self.__class__.__name__, session_id, display, loss_keys, selections,
-                     avg_samples, smooth_amount, flatten_outliers)
-
-        warnings.simplefilter("ignore", np.RankWarning)
+        logger.debug(parse_class_init(locals()))
+        warnings.simplefilter("ignore", np.exceptions.RankWarning)
 
         self._session_id = session_id
 
@@ -532,13 +566,13 @@ class Calculations():
         self._loss_keys = loss_keys if isinstance(loss_keys, list) else [loss_keys]
         self._selections = selections if isinstance(selections, list) else [selections]
         self._is_totals = session_id is None
-        self._args = dict(avg_samples=avg_samples,
-                          smooth_amount=smooth_amount,
-                          flatten_outliers=flatten_outliers)
+        self._args: dict[str, int | float] = {"avg_samples": avg_samples,
+                                              "smooth_amount": smooth_amount,
+                                              "flatten_outliers": flatten_outliers}
         self._iterations = 0
         self._limit = 0
         self._start_iteration = 0
-        self._stats = {}
+        self._stats: dict[str, np.ndarray] = {}
         self.refresh()
         logger.debug("Initialized %s", self.__class__.__name__)
 
@@ -553,11 +587,11 @@ class Calculations():
         return self._start_iteration
 
     @property
-    def stats(self) -> dict:
+    def stats(self) -> dict[str, np.ndarray]:
         """ dict: The final calculated statistics """
         return self._stats
 
-    def refresh(self) -> Optional[Self]:
+    def refresh(self) -> Calculations | None:
         """ Refresh the stats """
         logger.debug("Refreshing")
         if not _SESSION.is_loaded:
@@ -654,11 +688,11 @@ class Calculations():
             if len(iterations) > 1:
                 # Crop all losses to the same number of items
                 if self._iterations == 0:
-                    self.stats = {lossname: np.array([], dtype=loss.dtype)
-                                  for lossname, loss in self.stats.items()}
+                    self._stats = {lossname: np.array([], dtype=loss.dtype)
+                                   for lossname, loss in self.stats.items()}
                 else:
-                    self.stats = {lossname: loss[:self._iterations]
-                                  for lossname, loss in self.stats.items()}
+                    self._stats = {lossname: loss[:self._iterations]
+                                   for lossname, loss in self.stats.items()}
 
         else:  # Rate calculation
             data = self._calc_rate_total() if self._is_totals else self._calc_rate()
@@ -715,8 +749,9 @@ class Calculations():
             The training rate for each iteration of the selected session
         """
         logger.debug("Calculating rate")
-        retval = (_SESSION.batch_sizes[self._session_id] * 2) / np.diff(_SESSION.get_timestamps(
-            self._session_id))
+        batch_size = _SESSION.batch_sizes[self._session_id] * 2
+        retval = batch_size / np.diff(T.cast(np.ndarray,
+                                             _SESSION.get_timestamps(self._session_id)))
         logger.debug("Calculated rate: Item_count: %s", len(retval))
         return retval
 
@@ -737,7 +772,7 @@ class Calculations():
         logger.debug("Calculating totals rate")
         batchsizes = _SESSION.batch_sizes
         total_timestamps = _SESSION.get_timestamps(None)
-        rate = []
+        rate: list[float] = []
         for sess_id in sorted(total_timestamps.keys()):
             batchsize = batchsizes[sess_id]
             timestamps = total_timestamps[sess_id]
@@ -777,7 +812,7 @@ class Calculations():
             The moving average for the given data
         """
         logger.debug("Calculating Average. Data points: %s", len(data))
-        window = self._args["avg_samples"]
+        window = T.cast(int, self._args["avg_samples"])
         pad = ceil(window / 2)
         datapoints = data.shape[0]
 
@@ -805,7 +840,7 @@ class Calculations():
         :class:`numpy.ndarray`
             The smoothed data
         """
-        retval = _ExponentialMovingAverage(data, self._args["smooth_amount"])()
+        retval = ExponentialMovingAverage(data, self._args["smooth_amount"])()
         logger.debug("Calculated Smoothed data: shape: %s", retval.shape)
         return retval
 
@@ -835,163 +870,4 @@ class Calculations():
         return trend
 
 
-class _ExponentialMovingAverage():  # pylint:disable=too-few-public-methods
-    """ Reshapes data before calculating exponential moving average, then iterates once over the
-    rows to calculate the offset without precision issues.
-
-    Parameters
-    ----------
-    data: :class:`numpy.ndarray`
-        A 1 dimensional numpy array to obtain smoothed data for
-    amount: float
-        in the range (0.0, 1.0) The alpha parameter (smoothing amount) for the moving average.
-
-    Notes
-    -----
-    Adapted from: https://stackoverflow.com/questions/42869495
-    """
-    def __init__(self, data: np.ndarray, amount: float) -> None:
-        assert data.ndim == 1
-        amount = min(max(amount, 0.001), 0.999)
-
-        self._data = np.nan_to_num(data)
-        self._alpha = 1. - amount
-        self._dtype = "float32" if data.dtype == np.float32 else "float64"
-        self._row_size = self._get_max_row_size()
-        self._out = np.empty_like(data, dtype=self._dtype)
-
-    def __call__(self) -> np.ndarray:
-        """ Perform the exponential moving average calculation.
-
-        Returns
-        -------
-        :class:`numpy.ndarray`
-            The smoothed data
-        """
-        if self._data.size <= self._row_size:
-            self._ewma_vectorized(self._data, self._out)  # Normal function can handle this input
-        else:
-            self._ewma_vectorized_safe()  # Use the safe version
-        return self._out
-
-    def _get_max_row_size(self) -> int:
-        """ Calculate the maximum row size for the running platform for the given dtype.
-
-        Returns
-        -------
-        int
-            The maximum row size possible on the running platform for the given :attr:`_dtype`
-
-        Notes
-        -----
-        Might not be the optimal value for speed, which is hard to predict due to numpy
-        optimizations.
-        """
-        # Use :func:`np.finfo(dtype).eps` if you are worried about accuracy and want to be safe.
-        epsilon = np.finfo(self._dtype).tiny  # pylint:disable=no-member
-        # If this produces an OverflowError, make epsilon larger:
-        retval = int(np.log(epsilon) / np.log(1 - self._alpha)) + 1
-        logger.debug("row_size: %s", retval)
-        return retval
-
-    def _ewma_vectorized_safe(self) -> None:
-        """ Perform the vectorized exponential moving average in a safe way. """
-        num_rows = int(self._data.size // self._row_size)  # the number of rows to use
-        leftover = int(self._data.size % self._row_size)  # the amount of data leftover
-        first_offset = self._data[0]
-
-        if leftover > 0:
-            # set temporary results to slice view of out parameter
-            out_main_view = np.reshape(self._out[:-leftover], (num_rows, self._row_size))
-            data_main_view = np.reshape(self._data[:-leftover], (num_rows, self._row_size))
-        else:
-            out_main_view = self._out.reshape(-1, self._row_size)
-            data_main_view = self._data.reshape(-1, self._row_size)
-
-        self._ewma_vectorized_2d(data_main_view, out_main_view)  # get the scaled cumulative sums
-
-        scaling_factors = (1 - self._alpha) ** np.arange(1, self._row_size + 1)
-        last_scaling_factor = scaling_factors[-1]
-
-        # create offset array
-        offsets = np.empty(out_main_view.shape[0], dtype=self._dtype)
-        offsets[0] = first_offset
-        # iteratively calculate offset for each row
-
-        for i in range(1, out_main_view.shape[0]):
-            offsets[i] = offsets[i - 1] * last_scaling_factor + out_main_view[i - 1, -1]
-
-        # add the offsets to the result
-        out_main_view += offsets[:, np.newaxis] * scaling_factors[np.newaxis, :]
-
-        if leftover > 0:
-            # process trailing data in the 2nd slice of the out parameter
-            self._ewma_vectorized(self._data[-leftover:],
-                                  self._out[-leftover:],
-                                  offset=out_main_view[-1, -1])
-
-    def _ewma_vectorized(self,
-                         data: np.ndarray,
-                         out: np.ndarray,
-                         offset: Optional[float] = None) -> None:
-        """ Calculates the exponential moving average over a vector. Will fail for large inputs.
-
-        The result is processed in place into the array passed to the `out` parameter
-
-        Parameters
-        ----------
-        data: :class:`numpy.ndarray`
-            A 1 dimensional numpy array to obtain smoothed data for
-        out: :class:`numpy.ndarray`
-            A location into which the result is stored. It must have the same shape and dtype as
-            the input data
-        offset: float, optional
-            The offset for the moving average, scalar. Default: the value held in data[0].
-        """
-        if data.size < 1:  # empty input, return empty array
-            return
-
-        offset = data[0] if offset is None else offset
-
-        # scaling_factors -> 0 as len(data) gets large. This leads to divide-by-zeros below
-        scaling_factors = np.power(1. - self._alpha, np.arange(data.size + 1, dtype=self._dtype),
-                                   dtype=self._dtype)
-        # create cumulative sum array
-        np.multiply(data, (self._alpha * scaling_factors[-2]) / scaling_factors[:-1],
-                    dtype=self._dtype, out=out)
-        np.cumsum(out, dtype=self._dtype, out=out)
-
-        out /= scaling_factors[-2::-1]  # cumulative sums / scaling
-
-        if offset != 0:
-            offset = np.array(offset, copy=False).astype(self._dtype, copy=False)
-            out += offset * scaling_factors[1:]
-
-    def _ewma_vectorized_2d(self, data: np.ndarray, out: np.ndarray) -> None:
-        """ Calculates the exponential moving average over the last axis.
-
-        The result is processed in place into the array passed to the `out` parameter
-
-        Parameters
-        ----------
-        data: :class:`numpy.ndarray`
-            A 1 or 2 dimensional numpy array to obtain smoothed data for.
-        out: :class:`numpy.ndarray`
-            A location into which the result is stored. It must have the same shape and dtype as
-            the input data
-        """
-        if data.size < 1:  # empty input, return empty array
-            return
-
-        # calculate the moving average
-        scaling_factors = np.power(1. - self._alpha, np.arange(data.shape[1] + 1,
-                                                               dtype=self._dtype),
-                                   dtype=self._dtype)
-        # create a scaled cumulative sum array
-        np.multiply(data,
-                    np.multiply(self._alpha * scaling_factors[-2],
-                                np.ones((data.shape[0], 1), dtype=self._dtype),
-                                dtype=self._dtype) / scaling_factors[np.newaxis, :-1],
-                    dtype=self._dtype, out=out)
-        np.cumsum(out, axis=1, dtype=self._dtype, out=out)
-        out /= scaling_factors[np.newaxis, -2::-1]
+__all__ = get_module_objects(__name__)

@@ -7,26 +7,38 @@ import tkinter as tk
 from tkinter import messagebox, ttk
 
 from lib.gui import (TaskBar, CliOptions, CommandNotebook, ConsoleOut, DisplayNotebook,
-                     get_images, initialize_images, initialize_config, LastSession,
-                     MainMenuBar, preview_trigger, ProcessWrapper, StatusBar)
+                     get_images, gui_config as cfg, initialize_images, initialize_config,
+                     LastSession, MainMenuBar, preview_trigger, ProcessWrapper, StatusBar)
+from lib.utils import get_module_objects
 
-logger = logging.getLogger(__name__)  # pylint: disable=invalid-name
+logger = logging.getLogger(__name__)
 
 
 class FaceswapGui(tk.Tk):
-    """ The Graphical User Interface """
+    """ The Graphical User Interface
 
-    def __init__(self, debug):
+    Launch the Faceswap GUI
+
+    Parameters
+    ----------
+    debug : bool
+        Output to the terminal rather than to Faceswap's internal console
+    config_file : str | None
+        Path to a custom .ini configuration file. ``None`` to use the default config file
+    """
+
+    def __init__(self, debug, config_file):
         logger.debug("Initializing %s", self.__class__.__name__)
         super().__init__()
+        cfg.load_config(config_file)
 
-        self._init_args = dict(debug=debug)
+        self._init_args = {"debug": debug}
         self._config = self.initialize_globals()
         self.set_fonts()
-        self._config.set_geometry(1200, 640, self._config.user_config_dict["fullscreen"])
+        self._config.set_geometry(1200, 640, cfg.fullscreen())
 
         self.wrapper = ProcessWrapper()
-        self.objects = dict()
+        self.objects = {}
 
         get_images().delete_preview()
         preview_trigger().clear(trigger_type=None)
@@ -37,9 +49,9 @@ class FaceswapGui(tk.Tk):
 
     def initialize_globals(self):
         """ Initialize config and images global constants """
-        cliopts = CliOptions()
+        cli_opts = CliOptions()
         statusbar = StatusBar(self)
-        config = initialize_config(self, cliopts, statusbar)
+        config = initialize_config(self, cli_opts, statusbar)
         initialize_images()
         return config
 
@@ -79,27 +91,27 @@ class FaceswapGui(tk.Tk):
         """ Add the paned window containers that
             hold each main area of the gui """
         logger.debug("Adding containers")
-        maincontainer = ttk.PanedWindow(self,
-                                        orient=tk.VERTICAL,
-                                        name="pw_main")
-        maincontainer.pack(fill=tk.BOTH, expand=True)
+        main_container = ttk.PanedWindow(self,
+                                         orient=tk.VERTICAL,
+                                         name="pw_main")
+        main_container.pack(fill=tk.BOTH, expand=True)
 
-        topcontainer = ttk.PanedWindow(maincontainer,
-                                       orient=tk.HORIZONTAL,
-                                       name="pw_top")
-        maincontainer.add(topcontainer)
+        top_container = ttk.PanedWindow(main_container,
+                                        orient=tk.HORIZONTAL,
+                                        name="pw_top")
+        main_container.add(top_container)
 
-        bottomcontainer = ttk.Frame(maincontainer, name="frame_bottom")
-        maincontainer.add(bottomcontainer)
-        self.objects["container_main"] = maincontainer
-        self.objects["container_top"] = topcontainer
-        self.objects["container_bottom"] = bottomcontainer
+        bottom_container = ttk.Frame(main_container, name="frame_bottom")
+        main_container.add(bottom_container)
+        self.objects["container_main"] = main_container
+        self.objects["container_top"] = top_container
+        self.objects["container_bottom"] = bottom_container
 
         logger.debug("Added containers")
 
     def set_initial_focus(self):
         """ Set the tab focus from settings """
-        tab = self._config.user_config_dict["tab"]
+        tab = cfg.tab()
         logger.debug("Setting focus for tab: %s", tab)
         self._config.set_active_tab_by_name(tab)
         logger.debug("Focus set to: %s", tab)
@@ -107,11 +119,10 @@ class FaceswapGui(tk.Tk):
     def set_layout(self):
         """ Set initial layout """
         self.update_idletasks()
-        config_opts = self._config.user_config_dict
         r_width = self.winfo_width()
         r_height = self.winfo_height()
-        w_ratio = config_opts["options_panel_width"] / 100.0
-        h_ratio = 1 - (config_opts["console_panel_height"] / 100.0)
+        w_ratio = cfg.options_panel_width() / 100.0
+        h_ratio = 1 - (cfg.console_panel_height() / 100.0)
         width = round(r_width * w_ratio)
         height = round(r_height * h_ratio)
         logger.debug("Setting Initial Layout: (root_width: %s, root_height: %s, width_ratio: %s, "
@@ -125,15 +136,14 @@ class FaceswapGui(tk.Tk):
         """ Rebuild the GUI on config change """
         logger.debug("Redrawing GUI")
         session_state = self._last_session.to_dict()
-        self._config.refresh_config()
-        get_images().__init__()
+        get_images().__init__()  # pylint:disable=unnecessary-dunder-call
         self.set_fonts()
         self.build_gui(rebuild=True)
         if session_state is not None:
             self._last_session.from_dict(session_state)
         logger.debug("GUI Redrawn")
 
-    def close_app(self, *args):  # pylint: disable=unused-argument
+    def close_app(self, *args):  # pylint:disable=unused-argument
         """ Close Python. This is here because the graph
             animation function continues to run even when
             tkinter has gone away """
@@ -144,7 +154,7 @@ class FaceswapGui(tk.Tk):
         if not self._config.project.confirm_close():
             return
 
-        if self._config.tk_vars["runningtask"].get():
+        if self._config.tk_vars.running_task.get():
             self.wrapper.task.terminate()
 
         self._last_session.save()
@@ -161,23 +171,26 @@ class FaceswapGui(tk.Tk):
         -------
         bool: ``True`` if user confirms close, ``False`` if user cancels close
         """
-        if not self._config.tk_vars["runningtask"].get():
+        if not self._config.tk_vars.running_task.get():
             logger.debug("No tasks currently running")
             return True
 
-        confirmtxt = "Processes are still running.\n\nAre you sure you want to exit?"
-        if not messagebox.askokcancel("Close", confirmtxt, default="cancel", icon="warning"):
+        confirm_txt = "Processes are still running.\n\nAre you sure you want to exit?"
+        if not messagebox.askokcancel("Close", confirm_txt, default="cancel", icon="warning"):
             logger.debug("Close Cancelled")
             return False
         logger.debug("Close confirmed")
         return True
 
 
-class Gui():  # pylint: disable=too-few-public-methods
+class Gui():
     """ The GUI process. """
     def __init__(self, arguments):
-        self.root = FaceswapGui(arguments.debug)
+        self.root = FaceswapGui(arguments.debug, arguments.config_file)
 
     def process(self):
         """ Builds the GUI """
         self.root.mainloop()
+
+
+__all__ = get_module_objects(__name__)

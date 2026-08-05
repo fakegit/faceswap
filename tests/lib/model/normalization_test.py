@@ -8,16 +8,12 @@ from itertools import product
 import numpy as np
 import pytest
 
+from keras import device, regularizers, models, layers
+
 from lib.model import normalization
 from lib.utils import get_backend
 
 from tests.lib.model.layers_test import layer_test
-
-if get_backend() == "amd":
-    from keras import regularizers, models, layers
-else:
-    # Ignore linting errors from Tensorflow's thoroughly broken import system
-    from tensorflow.keras import regularizers, models, layers  # pylint:disable=import-error
 
 
 @pytest.mark.parametrize('dummy', [None], ids=[get_backend().upper()])
@@ -67,27 +63,28 @@ def test_group_normalization(dummy):  # pylint:disable=unused-argument
                input_shape=(3, 64))
 
 
-_PARAMS = ["center", "scale"]
-_VALUES = list(product([True, False], repeat=len(_PARAMS)))
-_IDS = ["{}[{}]".format("|".join([_PARAMS[idx] for idx, b in enumerate(v) if b]),
-                        get_backend().upper()) for v in _VALUES]
+_PARAMS_NORM = ["center", "scale"]
+_VALUES_NORM = list(product([True, False], repeat=len(_PARAMS_NORM)))
+_IDS = [f"{'|'.join([_PARAMS_NORM[idx] for idx, b in enumerate(v) if b])}[{get_backend().upper()}]"
+        for v in _VALUES_NORM]
 
 
-@pytest.mark.parametrize(_PARAMS, _VALUES, ids=_IDS)
+@pytest.mark.parametrize(_PARAMS_NORM, _VALUES_NORM, ids=_IDS)
 def test_adain_normalization(center, scale):
     """ Basic test for Ada Instance Normalization. """
-    norm = normalization.AdaInstanceNormalization(center=center, scale=scale)
-    shapes = [(4, 8, 8, 1280), (4, 1, 1, 1280), (4, 1, 1, 1280)]
-    norm.build(shapes)
-    expected_output_shape = norm.compute_output_shape(shapes)
-    inputs = [layers.Input(shape=shapes[0][1:]),
-              layers.Input(shape=shapes[1][1:]),
-              layers.Input(shape=shapes[2][1:])]
-    model = models.Model(inputs, norm(inputs))
-    data = [10 * np.random.random(shape) for shape in shapes]
+    with device("cpu"):
+        norm = normalization.AdaInstanceNormalization(center=center, scale=scale)
+        shapes = [(4, 8, 8, 1280), (4, 1, 1, 1280), (4, 1, 1, 1280)]
+        norm.build(shapes)
+        expected_output_shape = norm.compute_output_shape(shapes)
+        inputs = [layers.Input(shape=shapes[0][1:]),
+                  layers.Input(shape=shapes[1][1:]),
+                  layers.Input(shape=shapes[2][1:])]
+        model = models.Model(inputs, norm(inputs))
+        data = [10 * np.random.random(shape) for shape in shapes]
 
-    actual_output = model.predict(data)
-    actual_output_shape = actual_output.shape
+        actual_output = model.predict(data, verbose=0)
+        actual_output_shape = actual_output.shape
 
     for expected_dim, actual_dim in zip(expected_output_shape,
                                         actual_output_shape):
@@ -95,16 +92,8 @@ def test_adain_normalization(center, scale):
             assert expected_dim == actual_dim
 
 
-@pytest.mark.parametrize(_PARAMS, _VALUES, ids=_IDS)
-def test_layer_normalization(center, scale):
-    """ Basic test for layer normalization. """
-    layer_test(normalization.LayerNormalization,
-               kwargs={"center": center, "scale": scale},
-               input_shape=(4, 512))
-
-
 _PARAMS = ["partial", "bias"]
-_VALUES = [(0.0, False), (0.25, False), (0.5, True), (0.75, False), (1.0, True)]
+_VALUES = [(0.0, False), (0.25, False), (0.5, True), (0.75, False), (1.0, True)]  # type:ignore
 _IDS = [f"partial={v[0]}|bias={v[1]}[{get_backend().upper()}]" for v in _VALUES]
 
 

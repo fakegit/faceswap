@@ -19,15 +19,19 @@ GNU General Public License for more details.
 import os
 import sys
 
+from lib.utils import get_module_objects
+
 # Windows
 if os.name == "nt":
-    import msvcrt  # pylint: disable=import-error
+    import msvcrt  # pylint:disable=import-error
 
 # Posix (Linux, OS X)
 else:
     import termios
     import atexit
     from select import select
+
+# pylint:disable=possibly-used-before-assignment
 
 
 class KBHit:
@@ -43,7 +47,7 @@ class KBHit:
             self.old_term = termios.tcgetattr(self.file_desc)
 
             # New terminal setting unbuffered
-            self.new_term[3] = (self.new_term[3] & ~termios.ICANON & ~termios.ECHO)
+            self.new_term[3] = self.new_term[3] & ~termios.ICANON & ~termios.ECHO
             termios.tcsetattr(self.file_desc, termios.TCSAFLUSH, self.new_term)
 
             # Support normal-terminal reset at exit
@@ -62,7 +66,7 @@ class KBHit:
         if (self.is_gui or not sys.stdout.isatty()) and os.name != "nt":
             return None
         if os.name == "nt":
-            return msvcrt.getch().decode("utf-8")
+            return msvcrt.getch().decode("utf-8", errors="replace")
         return sys.stdin.read(1)
 
     def getarrow(self):
@@ -83,7 +87,7 @@ class KBHit:
             char = sys.stdin.read(3)[2]
             vals = [65, 67, 66, 68]
 
-        return vals.index(ord(char.decode("utf-8")))
+        return vals.index(ord(char.decode("utf-8", errors="replace")))
 
     def kbhit(self):
         """ Returns True if keyboard character was hit, False otherwise. """
@@ -93,3 +97,6 @@ class KBHit:
             return msvcrt.kbhit()
         d_r, _, _ = select([sys.stdin], [], [], 0)
         return d_r != []
+
+
+__all__ = get_module_objects(__name__)

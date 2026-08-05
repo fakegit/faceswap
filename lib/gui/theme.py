@@ -8,13 +8,13 @@ from tkinter import ttk
 import numpy as np
 
 from lib.serializer import get_serializer
-from lib.utils import FaceswapError
+from lib.utils import FaceswapError, get_module_objects
 
 
-logger = logging.getLogger(__name__)  # pylint: disable=invalid-name
+logger = logging.getLogger(__name__)
 
 
-class Style():  # pylint:disable=too-few-public-methods
+class Style():
     """ Set the overarching theme and customize widgets.
 
     Parameters
@@ -196,7 +196,7 @@ class _Widgets():
             The color of the input field's border
         """
         # All the stock down arrow images are bad
-        images = dict()
+        images = {}
         for state in ("active", "normal"):
             images[f"arrow_{state}"] = self._images.get_image(
                 (20, 20),
@@ -313,7 +313,12 @@ class _Widgets():
         self._style.configure(f"{key}.TNotebook.Tab", padding=(6, 2, 6, 2), expand=(0, 0, 2))
         self._style.configure(f"{key}.TNotebook.Tab", expand=("selected", (1, 2, 4, 2)))
 
-    def scrollbar(self, key, trough_color, border_color, control_backgrounds, control_foregrounds,
+    def scrollbar(self,  # pylint:disable=too-many-locals
+                  key,
+                  trough_color,
+                  border_color,
+                  control_backgrounds,
+                  control_foregrounds,
                   control_borders):
         """ Create a custom scroll bar widget so we can control the colors.
 
@@ -343,7 +348,7 @@ class _Widgets():
                      "control_backgrounds: %s, control_foregrounds: %s, control_borders: %s)",
                      key, trough_color, border_color, control_backgrounds, control_foregrounds,
                      control_borders)
-        images = dict()
+        images = {}
         for idx, state in enumerate(("normal", "disabled", "active")):
             # Create arrow and slider widgets for each state
             img_args = ((16, 16), control_backgrounds[idx])
@@ -370,7 +375,7 @@ class _Widgets():
                     ("disabled", images[f"img_{lookup}_disabled"]),
                     ("pressed !disabled", images[f"img_{lookup}_active"]),
                     ("active !disabled", images[f"img_{lookup}_active"]))
-            kwargs = dict(border=1, sticky="ns") if element == "thumb" else dict()
+            kwargs = {"border": 1, "sticky": "ns"} if element == "thumb" else {}
             self._style.element_create(*args, **kwargs)
 
         # Get a configurable trough
@@ -439,7 +444,7 @@ class _Widgets():
                               troughcolor=trough_color)
 
 
-class _TkImage():  # pylint:disable=too-few-public-methods
+class _TkImage():
     """ Create a tk image for a given pattern and shape.
     """
     def __init__(self):
@@ -487,7 +492,7 @@ class _TkImage():  # pylint:disable=too-few-public-methods
         crop_size = (square_size // 16) * 16
         draw_rows = int(6 * crop_size / 16)
         start_row = dimensions[1] // 2 - draw_rows // 2
-        initial_indent = (2 * (crop_size // 16) + (dimensions[0] - crop_size) // 2)
+        initial_indent = 2 * (crop_size // 16) + (dimensions[0] - crop_size) // 2
 
         retval = np.zeros((dimensions[1], dimensions[0]), dtype="uint8")
         for i in range(start_row, start_row + draw_rows):
@@ -578,3 +583,6 @@ class _TkImage():  # pylint:disable=too-few-public-methods
                             for row in pattern)
         image.put("{" + pixels + "}")
         return image
+
+
+__all__ = get_module_objects(__name__)

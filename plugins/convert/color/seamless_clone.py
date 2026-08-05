@@ -1,23 +1,20 @@
 #!/usr/bin/env python3
 """ Seamless clone adjustment plugin for faceswap.py converter
-    NB: This probably isn't the best place for this, but it is independent of
-        color adjustments and does not have a natural home, so here for now
-        and called as an extra plugin from lib/convert.py
+NB: This probably isn't the best place for this, but it is independent of color adjustments and
+does not have a natural home, so here for now and called as an extra plugin from lib/convert.py
 """
-
 import cv2
 import numpy as np
+from lib.utils import get_module_objects
 from ._base import Adjustment
 
 
 class Color(Adjustment):
     """ Seamless clone the swapped face into the old face with cv2
-        NB: This probably isn't the best place for this, but it doesn't work well and
-        and does not have a natural home, so here for now.
+    NB: This probably isn't the best place for this, but it doesn't work well and does not have a
+    natural home, so here for now.
     """
-
-    @staticmethod
-    def process(old_face, new_face, raw_mask):
+    def process(self, old_face, new_face, raw_mask):  # pylint:disable=too-many-locals
         height, width, _ = old_face.shape
         height = height // 2
         width = width // 2
@@ -35,11 +32,14 @@ class Color(Adjustment):
                                ((height, height), (width, width), (0, 0)),
                                'constant')).astype("uint8")
 
-        blended = cv2.seamlessClone(insertion,  # pylint: disable=no-member
+        blended = cv2.seamlessClone(insertion,  # pylint:disable=no-member
                                     prior,
                                     insertion_mask,
                                     (x_center, y_center),
-                                    cv2.NORMAL_CLONE)  # pylint: disable=no-member
+                                    cv2.NORMAL_CLONE)  # pylint:disable=no-member
         blended = blended[height:-height, width:-width]
 
         return blended.astype("float32") / 255.0
+
+
+__all__ = get_module_objects(__name__)

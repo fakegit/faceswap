@@ -4,7 +4,7 @@
   - [Hardware Requirements](#hardware-requirements)
   - [Supported operating systems](#supported-operating-systems)
 - [Important before you proceed](#important-before-you-proceed)
-- [Linux and Windows Install Guide](#linux-and-windows-install-guide)
+- [Linux, Windows and macOS Install Guide](#linux-windows-and-macos-install-guide)
   - [Installer](#installer)
   - [Manual Install](#manual-install)
   - [Prerequisites](#prerequisites-1)
@@ -38,13 +38,7 @@
   - [Getting the faceswap code](#getting-the-faceswap-code)
   - [Setup](#setup-2)
     - [About some of the options](#about-some-of-the-options)
-- [Docker Install Guide](#docker-install-guide)
-  - [Docker General](#docker-general)
-    - [CUDA with Docker in 20 minutes.](#cuda-with-docker-in-20-minutes)
-  - [CUDA with Docker on Arch Linux](#cuda-with-docker-on-arch-linux)
-    - [Install docker](#install-docker)
-  - [A successful setup log, without docker.](#a-successful-setup-log-without-docker)
-  - [Run the project](#run-the-project)
+- [Run the project](#run-the-project)
   - [Notes](#notes)
 
 # Prerequisites
@@ -58,33 +52,34 @@ The type of computations that the process does are well suited for graphics card
 - **A powerful CPU**
     - Laptop CPUs can often run the software, but will not be fast enough to train at reasonable speeds
 - **A powerful GPU**
-    - Currently, Nvidia GPUs are fully supported. and AMD graphics cards are partially supported through plaidML.
+    - Currently, Nvidia GPUs are fully supported
+    - More modern AMD GPUs are supported on Linux through ROCm.
+    - M-series Macs are supported using Metal
     - If using an Nvidia GPU, then it needs to support at least CUDA Compute Capability 3.5. (Release 1.0 will work on Compute Capability 3.0)
       To see which version your GPU supports, consult this list: https://developer.nvidia.com/cuda-gpus
       Desktop cards later than the 7xx series are most likely supported.
 - **A lot of patience**
 
 ## Supported operating systems
-- **Windows 10**
-  Windows 7 and 8 might work. Your mileage may vary. Windows has an installer which will set up everything you need. See: https://github.com/deepfakes/faceswap/releases
+- **Windows 10/11**
+  Windows 7 and 8 might work for Nvidia. Your mileage may vary.
+  Windows has an installer which will set up everything you need. See: https://github.com/deepfakes/faceswap/releases
 - **Linux**
   Most Ubuntu/Debian or CentOS based Linux distributions will work. There is a Linux install script that will install and set up everything you need. See: https://github.com/deepfakes/faceswap/releases
 - **macOS**
   Experimental support for GPU-accelerated, native Apple Silicon processing (e.g. Apple M1 chips). Installation instructions can be found [further down this page](#macos-apple-silicon-install-guide).
   Intel based macOS systems should work, but you will need to follow the [Manual Install](#manual-install) instructions.
-- All operating systems must be 64-bit for Tensorflow to run.
-
-Alternatively, there is a docker image that is based on Debian.
+- All operating systems must be 64-bit.
 
 # Important before you proceed
 **In its current iteration, the project relies heavily on the use of the command line, although a gui is available. if you are unfamiliar with command line tools, you may have difficulty setting up the environment and should perhaps not attempt any of the steps described in this guide.** This guide assumes you have intermediate knowledge of the command line.
 
 The developers are also not responsible for any damage you might cause to your own computer.
 
-# Linux and Windows Install Guide
+# Linux, Windows and macOS Install Guide
 
 ## Installer
-Windows and Linux now both have an installer which installs everything for you and creates a desktop shortcut to launch straight into the GUI. You can download the installer from https://github.com/deepfakes/faceswap/releases.
+Windows, Linux and macOS all have installers which set up everything for you. You can download the installer from https://github.com/deepfakes/faceswap/releases.
 
 If you have issues with the installer then read on for the more manual way to install faceswap on Windows.
 
@@ -110,7 +105,7 @@ Reboot your PC, so that everything you have just installed gets registered.
 - Select "Create" at the bottom
 - In the pop up:
     - Give it the name: faceswap
-    - **IMPORTANT**: Select python version 3.8
+    - **IMPORTANT**: Select python version 3.13
     - Hit "Create" (NB: This may take a while as it will need to download Python)
 ![Anaconda virtual env setup](https://i.imgur.com/CLIDDfa.png)
 
@@ -131,13 +126,30 @@ To enter the virtual environment:
 - If you have issues/errors follow the Manual install steps below.
 
 #### Manual install
-Do not follow these steps if the Easy Install above completed succesfully.
-If you are using an Nvidia card make sure you have the correct versions of Cuda/cuDNN installed for the required version of Tensorflow
+Do not follow these steps if the Easy Install above completed successfully.
+If you are using an Nvidia card make sure you have the correct versions of Cuda/cuDNN installed for the required version of Torch
 - Install tkinter (required for the GUI) by typing: `conda install tk`
 - Install requirements:
-  - For Nvidia GPU users: `pip install -r ./requirements/requirements_nvidia.txt`
-  - For AMD GPU users: `pip install -r ./requirements/requirements_amd.txt`
-  - For CPU users: `pip install -r ./requirements/requirements_cpu.txt`
+  - For **Nvidia** GPU users:
+    - RTX20xx GPUS onwards: `pip install -r ./requirements/requirements_nvidia_13.txt`
+    - GTX9xx - GTX10xx GPUs: `pip install -r ./requirements/requirements_nvidia_12.txt`
+    - GTX7xx - GTX8xx GPUs: `pip install -r ./requirements/requirements_nvidia_11.txt`
+      - **Note:** Maximum supported Python version for GTX8xx - GTX9xx GPUs is `3.13`
+
+  - For **AMD** GPU users (Linux only):
+    - **Note** You must install a version of ROCm to your system that is compatible with your OS and GPU.
+    - ROCm 6.4: `pip install -r ./requirements/requirements_rocm64.txt`
+    - ROCm 6.3: `pip install -r ./requirements/requirements_rocm63.txt`
+    - ROCm 6.2: `pip install -r ./requirements/requirements_rocm62.txt`
+      - **Note:** Maximum supported Python version for ROCm 6.2 is `3.13`
+    - ROCm 6.1: `pip install -r ./requirements/requirements_rocm61.txt`
+      - **Note:** Maximum supported Python version for ROCm 6.1 is `3.13`
+    - ROCm 6.0: `pip install -r ./requirements/requirements_rocm60.txt`
+      - **Note:** Maximum supported Python version for ROCm 6.0 is `3.12`
+
+  - For **CPU** users: `pip install -r ./requirements/requirements_cpu.txt`
+
+  - For **Apple-Silicon (M Series)** users: `pip install -r ./requirements/requirements_apple-silicon.txt`
 
 ## Running faceswap
 - If you are not already in your virtual environment follow [these steps](#entering-your-virtual-environment)
@@ -163,6 +175,8 @@ It's good to keep faceswap up to date as new features are added and bugs are fix
 - Once the latest version has downloaded, make sure your dependencies are up to date. There is a script to help with this: `python update_deps.py`
 
 # macOS (Apple Silicon) Install Guide
+
+macOS now has [an installer](#linux-windows-and-macos-install-guide) which sets everything up for you, but if you run into difficulties and need to set things up manually, the steps are as follows:
 
 ## Prerequisites
 
@@ -191,7 +205,7 @@ $ source ~/miniforge3/bin/activate
 ## Setup
 ### Create and Activate the Environment
 ```sh
-$ conda create --name faceswap python=3.9
+$ conda create --name faceswap python=3.13
 $ conda activate faceswap
 ```
 
@@ -221,7 +235,7 @@ Obtain git for your distribution from the [git website](https://git-scm.com/down
 The recommended install method is to use a Conda3 Environment as this will handle the installation of Nvidia's CUDA and cuDNN straight into your Conda Environment. This is by far the easiest and most reliable way to setup the project.
   - MiniConda3 is recommended: [MiniConda3](https://docs.conda.io/en/latest/miniconda.html)
 
-Alternatively you can install Python (>= 3.7-3.9 64-bit) for your distribution (links below.) If you go down this route and are using an Nvidia GPU you should install CUDA (https://developer.nvidia.com/cuda-zone) and cuDNN (https://developer.nvidia.com/cudnn). for your system. If you do not plan to build Tensorflow yourself, make sure you install the correct Cuda and cuDNN package for the currently installed version of Tensorflow (Current release: Tensorflow 2.8. Release v1.0: Tensorflow 1.15). You can check for the compatible versions here: (https://www.tensorflow.org/install/source#gpu).
+Alternatively you can install Python (3.14 64-bit) for your distribution (links below.) If you go down this route and are using an Nvidia GPU you should install CUDA (https://developer.nvidia.com/cuda-zone) and cuDNN (https://developer.nvidia.com/cudnn). for your system. If you do not plan to build Torch yourself, make sure you install the correct Cuda and cuDNN package for the currently installed version of Torch.
   - Python distributions:
     - apt/yum install python3 (Linux)
     - [Installer](https://www.python.org/downloads/release/python-368/) (Windows)
@@ -232,7 +246,7 @@ Alternatively you can install Python (>= 3.7-3.9 64-bit) for your distribution (
 
   If using Conda3 then setting up virtual environments is relatively straight forward. More information can be found at [Conda Docs](https://docs.conda.io/projects/conda/en/latest/user-guide/tasks/manage-environments.html)
 
-  If using a default Python distribution then [virtualenv](https://github.com/pypa/virtualenv) and [virtualenvwrapper](https://virtualenvwrapper.readthedocs.io) may help when you are not using docker.
+  If using a default Python distribution then [virtualenv](https://github.com/pypa/virtualenv) and [virtualenvwrapper](https://virtualenvwrapper.readthedocs.io) may help.
 
 
 ## Getting the faceswap code
@@ -251,158 +265,9 @@ If setup fails for any reason you can still manually install the packages listed
 
 ### About some of the options
    - CUDA: For acceleration. Requires a good nVidia Graphics Card (which supports CUDA inside)
-   - Docker: Provide a ready-made image. Hide trivial details. Get you straight to the project.
-   - nVidia-Docker: Access to the nVidia GPU on host machine from inside container.
+   - ROCm: For AMD GPUs under Linux/WSL2 only. Make sure you install the correct version of faceswap for your installed ROCm version
 
-# Docker Install Guide
-
-## Docker General
-<details>
-  <summary>Click to expand!</summary>
-
-  ### CUDA with Docker in 20 minutes.
-  
-  1. Install Docker
-     https://www.docker.com/community-edition
-
-  2. Install Nvidia-Docker & Restart Docker Service
-     https://github.com/NVIDIA/nvidia-docker
-
-  3. Build Docker Image For faceswap
-  
-  ```bash
-  docker build -t deepfakes-gpu -f Dockerfile.gpu . 
-  ```
-
-  4. Mount faceswap volume and Run it
-    a). without `gui.tools.py` gui not working.
-
- ```bash
- nvidia-docker run --rm -it -p 8888:8888 \
-     --hostname faceswap-gpu --name faceswap-gpu \
-     -v /opt/faceswap:/srv \
-     deepfakes-gpu
- ```
-
-    b). with gui. tools.py gui working.
-
-Enable local access to X11 server
-
-```bash
-xhost +local:
-```
-
-Enable nvidia device if working under bumblebee
-
-```bash
-echo ON > /proc/acpi/bbswitch
-```
-
-Create container
-```bash
-nvidia-docker run -p 8888:8888 \
-   --hostname faceswap-gpu --name faceswap-gpu \
-   -v /opt/faceswap:/srv \
-   -v /tmp/.X11-unix:/tmp/.X11-unix \
-   -e DISPLAY=unix$DISPLAY \
-   -e AUDIO_GID=`getent group audio | cut -d: -f3` \
-   -e VIDEO_GID=`getent group video | cut -d: -f3` \
-   -e GID=`id -g` \
-   -e UID=`id -u` \
-   deepfakes-gpu
-
-```
-
-Open a new terminal to interact with the project
-
-```bash
-docker exec -it deepfakes-gpu /bin/bash
-```
-
-Launch deepfakes gui (Answer 3 for NVIDIA at the prompt)
-
-```bash
-python3.8 /srv/faceswap.py gui
-```
-</details>
-
-## CUDA with Docker on Arch Linux
-
-<details>
-  <summary>Click to expand!</summary>
-
-### Install docker
-
-```bash
-sudo pacman -S docker
-```
-
-The steps are same but Arch linux doesn't use nvidia-docker
-
-create container
-
-```bash
-docker run -p 8888:8888 --gpus all --privileged -v /dev:/dev \  
-            --hostname faceswap-gpu --name faceswap-gpu \
-            -v /mnt/hdd2/faceswap:/srv \
-            -v /tmp/.X11-unix:/tmp/.X11-unix \
-            -e DISPLAY=unix$DISPLAY \
-            -e AUDIO_GID=`getent group audio | cut -d: -f3` \
-            -e VIDEO_GID=`getent group video | cut -d: -f3` \
-            -e GID=`id -g` \
-            -e UID=`id -u` \
-            deepfakes-gpu
-```
-
-Open a new terminal to interact with the project
-
-```bash
-docker exec -it deepfakes-gpu /bin/bash
-```
-
-Launch deepfakes gui (Answer 3 for NVIDIA at the prompt)
-
-**With `gui.tools.py` gui working.**
- Enable local access to X11 server
-
- ```bash
-xhost +local:
-```
- 
- ```bash
- python3.8 /srv/faceswap.py gui
- ```
-
-</details>
-
---- 
-## A successful setup log, without docker.
-```
-INFO    The tool provides tips for installation
-        and installs required python packages
-INFO    Setup in Linux 4.14.39-1-MANJARO
-INFO    Installed Python: 3.7.5 64bit
-INFO    Installed PIP: 10.0.1
-Enable  Docker? [Y/n] n
-INFO    Docker Disabled
-Enable  CUDA? [Y/n]
-INFO    CUDA Enabled
-INFO    CUDA version: 9.1
-INFO    cuDNN version: 7
-WARNING Tensorflow has no official prebuild for CUDA 9.1 currently.
-        To continue, You have to build your own tensorflow-gpu.
-        Help: https://www.tensorflow.org/install/install_sources
-Are System Dependencies met? [y/N] y
-INFO    Installing Missing Python Packages...
-INFO    Installing tensorflow-gpu
-......
-INFO    Installing tqdm
-INFO    Installing matplotlib
-INFO    All python3 dependencies are met.
-        You are good to go.
-```
-
-## Run the project
+# Run the project
 Once all these requirements are installed, you can attempt to run the faceswap tools. Use the `-h` or `--help` options for a list of options.
 
 ```bash

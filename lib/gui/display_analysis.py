@@ -8,20 +8,23 @@ import os
 import tkinter as tk
 from tkinter import ttk
 
+from lib.logger import parse_class_init
+from lib.utils import get_module_objects
+
 from .custom_widgets import Tooltip
 from .display_page import DisplayPage
 from .popup_session import SessionPopUp
 from .analysis import Session
 from .utils import FileHandler, get_config, get_images, LongRunningTask
 
-logger = logging.getLogger(__name__)  # pylint: disable=invalid-name
+logger = logging.getLogger(__name__)
 
 # LOCALES
 _LANG = gettext.translation("gui.tooltips", localedir="locales", fallback=True)
 _ = _LANG.gettext
 
 
-class Analysis(DisplayPage):  # pylint: disable=too-many-ancestors
+class Analysis(DisplayPage):  # pylint:disable=too-many-ancestors
     """ Session Analysis Tab.
 
     The area of the GUI that holds the session summary stats for model training sessions.
@@ -36,8 +39,7 @@ class Analysis(DisplayPage):  # pylint: disable=too-many-ancestors
         The help text to display for the summary statistics page
     """
     def __init__(self, parent, tab_name, helptext):
-        logger.debug("Initializing: %s: (parent, %s, tab_name: '%s', helptext: '%s')",
-                     self.__class__.__name__, parent, tab_name, helptext)
+        logger.debug(parse_class_init(locals()))
         super().__init__(parent, tab_name, helptext)
         self._summary = None
 
@@ -62,19 +64,16 @@ class Analysis(DisplayPage):  # pylint: disable=too-many-ancestors
         dict
             The dictionary of variable names to tkinter variables
         """
-        return dict(selected_id=tk.StringVar(),
-                    refresh_graph=get_config().tk_vars["refreshgraph"],
-                    is_training=get_config().tk_vars["istraining"],
-                    analysis_folder=get_config().tk_vars["analysis_folder"])
+        return {"selected_id": tk.StringVar(),
+                "refresh_graph": get_config().tk_vars.refresh_graph,
+                "is_training": get_config().tk_vars.is_training,
+                "analysis_folder": get_config().tk_vars.analysis_folder}
 
     def on_tab_select(self):
         """ Callback for when the analysis tab is selected.
 
-        If Faceswap is currently training a model, then update the statistics with the latest
-        values.
+        Update the statistics with the latest values.
         """
-        if not self.vars["is_training"].get():
-            return
         logger.debug("Analysis update callback received")
         self._reset_session()
 
@@ -194,12 +193,13 @@ class Analysis(DisplayPage):  # pylint: disable=too-many-ancestors
         else:
             logger.debug("Retrieving data from thread")
             result = self._thread.get_result()
-            if result is None:
+            del self._thread
+            self._thread = None
+            if not result:
                 logger.debug("No result from session summary. Clearing analysis view")
                 self._clear_session()
                 return
             self._summary = result
-            self._thread = None
             self.set_info(f"Session: {message}")
             self._stats.tree_insert_data(self._summary)
 
@@ -299,7 +299,7 @@ class _Options():  # pylint:disable=too-few-public-methods
         The Analysis Display Tab that holds the options buttons
     """
     def __init__(self, parent):
-        logger.debug("Initializing: %s (parent: %s)", self.__class__.__name__, parent)
+        logger.debug(parse_class_init(locals()))
         self._parent = parent
         self._buttons = self._add_buttons()
         self._add_training_callback()
@@ -365,7 +365,7 @@ class _Options():  # pylint:disable=too-few-public-methods
             button.state([state])
 
 
-class StatsData(ttk.Frame):  # pylint: disable=too-many-ancestors
+class StatsData(ttk.Frame):  # pylint:disable=too-many-ancestors
     """ Stats frame of analysis tab.
 
     Holds the tree-view containing the summarized session statistics in the Analysis tab.
@@ -380,8 +380,7 @@ class StatsData(ttk.Frame):  # pylint: disable=too-many-ancestors
         The help text to display for the summary statistics page
     """
     def __init__(self, parent, selected_id, helptext):
-        logger.debug("Initializing: %s: (parent, %s, selected_id: %s, helptext: '%s')",
-                     self.__class__.__name__, parent, selected_id, helptext)
+        logger.debug(parse_class_init(locals()))
         super().__init__(parent)
         self._selected_id = selected_id
 
@@ -586,3 +585,6 @@ class StatsData(ttk.Frame):  # pylint: disable=too-many-ancestors
             title = f"{model_name.title()} Model: Session #{selected_id}"
         logger.debug("Title: '%s'", title)
         return f"{title} - {model_dir}"
+
+
+__all__ = get_module_objects(__name__)

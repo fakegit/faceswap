@@ -1,76 +1,95 @@
 #!/usr/bin/env python3
-""" Parent class for obtaining Stats for various GPU/TPU backends. All GPU Stats should inherit
-from the :class:`GPUStats` class contained here. """
+"""Parent class for obtaining Stats for various GPU/TPU backends. All GPU Stats should inherit
+from the :class:`_GPUStats` class contained here."""
 
 import logging
-import os
-import sys
 
-from typing import List, Optional
+from dataclasses import dataclass
 
 from lib.utils import get_backend
 
-if sys.version_info < (3, 8):
-    from typing_extensions import TypedDict
-else:
-    from typing import TypedDict
-    
+_EXCLUDE_DEVICES: list[int] = []
 
 
-_EXCLUDE_DEVICES: List[int] = []
+@dataclass
+class GPUInfo():
+    """Dataclass for storing information about the available GPUs on the system.
 
-
-class GPUInfo(TypedDict):
-    """ Typed Dictionary for returning Full GPU Information. """
-    vram: List[int]
-    driver: str
-    devices: List[str]
-    active_devices: List[str]
-
-
-class BiggestGPUInfo(TypedDict):
-    """ Typed Dictionary for returning GPU Information about the card with most available VRAM. """
-    card_id: int
-    device: str
-    free: float
-    total: float
-
-
-def set_exclude_devices(devices: List[int]) -> None:
-    """ Add any explicitly selected GPU devices to the global list of devices to be excluded
-    from use by Faceswap.
-
-    Parameters
+    Attributes:
     ----------
-    devices: list
-        list of indices corresponding to the GPU devices connected to the computer
+    vram
+        List of integers representing the total VRAM available on each GPU, in MB.
+    vram_free
+        List of integers representing the free VRAM available on each GPU, in MB.
+    driver
+        String representing the driver version being used for the GPUs.
+    devices
+        List of strings representing the names of each GPU device.
+    devices_active
+        List of integers representing the indices of the active GPU devices.
     """
-    logger = logging.getLogger(__name__)
-    logger.debug("Excluding GPU indicies: %s", devices)
-    if not devices:
-        return
-    _EXCLUDE_DEVICES.extend(devices)
+    vram: list[int]
+    """List of integers representing the total VRAM available on each GPU, in MB."""
+    vram_free: list[int]
+    """List of integers representing the free VRAM available on each GPU, in MB."""
+    driver: str
+    """String representing the driver version being used for the GPUs."""
+    devices: list[str]
+    """List of strings representing the names of each GPU device."""
+    devices_active: list[int]
+    """List of integers representing the indices of the active GPU devices."""
 
 
-class GPUStats():
-    """ Parent class for returning information of GPUs used. """
+@dataclass
+class BiggestGPUInfo():
+    """Dataclass for holding GPU Information about the card with most available VRAM.
+
+    Attributes
+    ----------
+    card_id
+        Integer representing the index of the GPU device.
+    device
+        The name of the device
+    free
+        The amount of available VRAM on the GPU
+    total
+        the total amount of VRAM on the GPU
+    """
+    card_id: int
+    """Integer representing the index of the GPU device."""
+    device: str
+    """The name of the device"""
+    free: float
+    """The amount of available VRAM on the GPU"""
+    total: float
+    """the total amount of VRAM on the GPU"""
+
+
+class _GPUStats():
+    """Parent class for collecting GPU device information.
+
+    Parameters:
+    -----------
+    log
+        Flag indicating whether or not to log debug messages. Default: `True`.
+    """
 
     def __init__(self, log: bool = True) -> None:
         # Logger is held internally, as we don't want to log when obtaining system stats on crash
         # or when querying the backend for command line options
-        self._logger: Optional[logging.Logger] = logging.getLogger(__name__) if log else None
+        self._logger: logging.Logger | None = logging.getLogger(__name__) if log else None
         self._log("debug", f"Initializing {self.__class__.__name__}")
 
         self._is_initialized = False
         self._initialize()
 
         self._device_count: int = self._get_device_count()
-        self._active_devices: List[int] = self._get_active_devices()
+        self._active_devices: list[int] = self._get_active_devices()
         self._handles: list = self._get_handles()
         self._driver: str = self._get_driver()
-        self._device_names: List[str] = self._get_device_names()
-        self._vram: List[float] = self._get_vram()
-        self._vram_free: List[float] = self._get_free_vram()
+        self._device_names: list[str] = self._get_device_names()
+        self._vram: list[int] = self._get_vram()
+        self._vram_free: list[int] = self._get_free_vram()
 
         if get_backend() != "cpu" and not self._active_devices:
             self._log("warning", "No GPU detected")
@@ -80,50 +99,37 @@ class GPUStats():
 
     @property
     def device_count(self) -> int:
-        """int: The number of GPU devices discovered on the system. """
+        """The number of GPU devices discovered on the system."""
         return self._device_count
 
     @property
-    def cli_devices(self) -> List[str]:
-        """ list: List of available devices for use in faceswap's command line arguments. """
+    def cli_devices(self) -> list[str]:
+        """Formatted index: name text string for each GPU"""
         return [f"{idx}: {device}" for idx, device in enumerate(self._device_names)]
 
     @property
     def exclude_all_devices(self) -> bool:
-        """ bool: ``True`` if all GPU devices have been explicitly disabled otherwise ``False`` """
+        """``True`` if all GPU devices have been explicitly disabled otherwise ``False``"""
         return all(idx in _EXCLUDE_DEVICES for idx in range(self._device_count))
 
     @property
     def sys_info(self) -> GPUInfo:
-        """ dict: GPU Stats that are required for system information logging.
-
-        The dictionary contains the following data:
-
-            **vram** (`list`): the total amount of VRAM in Megabytes for each GPU as pertaining to
-            :attr:`_handles`
-
-            **driver** (`str`): The GPU driver version that is installed on the OS
-
-            **devices** (`list`): The device name of each GPU on the system as pertaining
-            to :attr:`_handles`
-
-            **devices_active** (`list`): The device name of each active GPU on the system as
-            pertaining to :attr:`_handles`
-        """
+        """The GPU Stats that are required for system information logging"""
         return GPUInfo(vram=self._vram,
+                       vram_free=self._get_free_vram(),
                        driver=self._driver,
                        devices=self._device_names,
                        devices_active=self._active_devices)
 
     def _log(self, level: str, message: str) -> None:
-        """ If the class has been initialized with :attr:`log` as `True` then log the message
+        """If the class has been initialized with :attr:`log` as `True` then log the message
         otherwise skip logging.
 
         Parameters
         ----------
-        level: str
+        level
             The log level to log at
-        message: str
+        message
             The message to log
         """
         if self._logger is None:
@@ -131,120 +137,96 @@ class GPUStats():
         logger = getattr(self._logger, level.lower())
         logger(message)
 
-    def _initialize(self):
-        """ Override for GPU specific initialization code. """
+    def _initialize(self) -> None:
+        """Override to initialize the GPU device handles and any other necessary resources."""
         self._is_initialized = True
 
-    def _shutdown(self):
-        """ Override for GPU specific shutdown code. """
+    def _shutdown(self) -> None:
+        """Override to shutdown the GPU device handles and any other necessary resources."""
         self._is_initialized = False
 
     def _get_device_count(self) -> int:
-        """ Override to obtain GPU specific device count
+        """Override to obtain the number of GPU devices
 
         Returns
         -------
-        int
-            The total number of GPUs connected to the PC
+        The total number of GPUs connected to the PC
         """
         raise NotImplementedError()
 
-    def _get_active_devices(self) -> List[int]:
-        """ Obtain the indices of active GPUs (those that have not been explicitly excluded by
-        CUDA_VISIBLE_DEVICES environment variable or explicitly excluded in the command line
-        arguments).
+    def _get_active_devices(self) -> list[int]:
+        """Obtain the indices of active GPUs (those that have not been explicitly excluded in
+        the command line arguments).
 
         Notes
         -----
-        Override for GPUs that do not use CUDA
+        Override for GPU specific checking
 
         Returns
         -------
-        list
-            The list of device indices that are available for Faceswap to use
+        The list of device indices that are available for Faceswap to use
         """
         devices = [idx for idx in range(self._device_count) if idx not in _EXCLUDE_DEVICES]
-        env_devices = os.environ.get("CUDA_VISIBLE_DEVICES")
-        if env_devices:
-            env_devices = [int(i) for i in env_devices.split(",")]
-            devices = [idx for idx in devices if idx in env_devices]
         self._log("debug", f"Active GPU Devices: {devices}")
         return devices
 
     def _get_handles(self) -> list:
-        """ Override to obtain GPU specific device handles for all connected devices.
+        """Override to obtain GPU specific device handles for all connected devices.
 
         Returns
         -------
-        list
-            The device handle for each connected GPU
+        The device handle for each connected GPU
         """
         raise NotImplementedError()
 
     def _get_driver(self) -> str:
-        """ Override to obtain the GPU specific driver version.
+        """Override to obtain the GPU specific driver version.
 
         Returns
         -------
-        str
-            The GPU driver currently in use
+        The GPU driver currently in use
         """
         raise NotImplementedError()
 
-    def _get_device_names(self) -> List[str]:
-        """ Override to obtain the names of all connected GPUs. The quality of this information
+    def _get_device_names(self) -> list[str]:
+        """Override to obtain the names of all connected GPUs. The quality of this information
         depends on the backend and OS being used, but it should be sufficient for identifying
         cards.
 
         Returns
         -------
-        list
-            List of device names for connected GPUs as corresponding to the values in
-            :attr:`_handles`
+        List of device names for connected GPUs as corresponding to the values in :attr:`_handles`
         """
         raise NotImplementedError()
 
-    def _get_vram(self) -> List[float]:
-        """ Override to obtain the total VRAM in Megabytes for each connected GPU.
+    def _get_vram(self) -> list[int]:
+        """Override to obtain the total VRAM in Megabytes for each connected GPU.
 
         Returns
         -------
-        list
-             List of `float`s containing the total amount of VRAM in Megabytes for each
-             connected GPU as corresponding to the values in :attr:`_handles`
+        List of `float`s containing the total amount of VRAM in Megabytes for each connected GPU
+        as corresponding to the values in :attr:`_handles`
         """
         raise NotImplementedError()
 
-    def _get_free_vram(self) -> List[float]:
-        """ Override to obrain the amount of VRAM that is available, in Megabytes, for each
+    def _get_free_vram(self) -> list[int]:
+        """Override to obtain the amount of VRAM that is available, in Megabytes, for each
         connected GPU.
 
         Returns
         -------
-        list
-            List of `float`s containing the amount of VRAM available, in Megabytes, for each
-            connected GPU as corresponding to the values in :attr:`_handles
+        List of `float`s containing the amount of VRAM available, in Megabytes, for each connected
+        GPU as corresponding to the values in :attr:`_handles
         """
         raise NotImplementedError()
 
     def get_card_most_free(self) -> BiggestGPUInfo:
-        """ Obtain statistics for the GPU with the most available free VRAM.
+        """Obtain statistics for the GPU with the most available free VRAM.
 
         Returns
         -------
-        dict
-            The dictionary contains the following data:
-
-                **card_id** (`int`):  The index of the card as pertaining to :attr:`_handles`
-
-                **device** (`str`): The name of the device
-
-                **free** (`float`): The amount of available VRAM on the GPU
-
-                **total** (`float`): the total amount of VRAM on the GPU
-
-            If a GPU is not detected then the **card_id** is returned as ``-1`` and the amount
-            of free and total RAM available is fixed to 2048 Megabytes.
+        If a GPU is not detected then the **card_id** is returned as ``-1`` and the amount
+        of free and total RAM available is fixed to 2048 Megabytes.
         """
         if len(self._active_devices) == 0:
             retval = BiggestGPUInfo(card_id=-1,
@@ -261,3 +243,12 @@ class GPUStats():
                                     total=self._vram[card_id])
         self._log("debug", f"Active GPU Card with most free VRAM: {retval}")
         return retval
+
+    def exclude_devices(self, devices: list[int]) -> None:
+        """Exclude GPU devices from being used by Faceswap. Override for backend specific logic
+
+        Parameters
+        ----------
+        The GPU device IDS to be excluded
+        """
+        raise NotImplementedError

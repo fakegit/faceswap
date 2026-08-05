@@ -6,26 +6,26 @@ msgid ""
 msgstr ""
 "Project-Id-Version: faceswap.spanish\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2022-05-24 12:38+0100\n"
-"PO-Revision-Date: 2022-05-24 12:41+0100\n"
+"POT-Creation-Date: 2024-04-19 11:28+0100\n"
+"PO-Revision-Date: 2024-04-19 11:29+0100\n"
 "Last-Translator: \n"
 "Language-Team: tokafondo\n"
 "Language: es_ES\n"
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
-"Generated-By: pygettext.py 1.5\n"
-"X-Generator: Poedit 3.0\n"
 "Plural-Forms: nplurals=2; plural=(n != 1);\n"
+"Generated-By: pygettext.py 1.5\n"
+"X-Generator: Poedit 3.4.2\n"
 
-#: tools/alignments/cli.py:15
+#: tools/alignments/cli.py:16
 msgid ""
 "This command lets you perform various tasks pertaining to an alignments file."
 msgstr ""
 "Este comando le permite realizar varias tareas relacionadas con un archivo "
 "de alineación."
 
-#: tools/alignments/cli.py:30
+#: tools/alignments/cli.py:31
 msgid ""
 "Alignments tool\n"
 "This tool allows you to perform numerous actions on or using an alignments "
@@ -36,57 +36,63 @@ msgstr ""
 "caras o una fuente de fotogramas, usando opcionalmente su correspondiente "
 "archivo de alineación."
 
-#: tools/alignments/cli.py:41
-msgid " Must Pass in a frames folder/source video file (-fr)."
-msgstr ""
-" Debe indicar una carpeta de fotogramas o archivo de vídeo de origen (-fr)."
-
-#: tools/alignments/cli.py:42
-msgid " Must Pass in a faces folder (-fc)."
-msgstr " Debe indicar una carpeta de caras (-fc)."
-
 #: tools/alignments/cli.py:43
-msgid ""
-" Must Pass in either a frames folder/source video file OR afaces folder (-fr "
-"or -fc)."
+msgid " Must Pass in a frames folder/source video file (-r)."
 msgstr ""
-" Debe indicar una carpeta de fotogramas o archivo de vídeo de origen, o una "
-"carpeta de caras (-fr o -fc)."
+" Debe indicar una carpeta de fotogramas o archivo de vídeo de origen (-r)."
+
+#: tools/alignments/cli.py:44
+msgid " Must Pass in a faces folder (-c)."
+msgstr " Debe indicar una carpeta de caras (-c)."
 
 #: tools/alignments/cli.py:45
 msgid ""
-" Must Pass in a frames folder/source video file AND a faces folder (-fr and -"
-"fc)."
+" Must Pass in either a frames folder/source video file OR a faces folder (-r "
+"or -c)."
 msgstr ""
-" Debe indicar una carpeta de fotogramas o archivo de vídeo de origen, y una "
-"carpeta de caras (-fr y -fc)."
+" Debe indicar una carpeta de fotogramas o archivo de vídeo de origen, o una "
+"carpeta de caras (-r o -c)."
 
 #: tools/alignments/cli.py:47
+msgid ""
+" Must Pass in a frames folder/source video file AND a faces folder (-r and -"
+"c)."
+msgstr ""
+" Debe indicar una carpeta de fotogramas o archivo de vídeo de origen, y una "
+"carpeta de caras (-r y -c)."
+
+#: tools/alignments/cli.py:49
 msgid " Use the output option (-o) to process results."
 msgstr " Usar la opción de salida (-o) para procesar los resultados."
 
-#: tools/alignments/cli.py:55 tools/alignments/cli.py:94
+#: tools/alignments/cli.py:58 tools/alignments/cli.py:104
 msgid "processing"
 msgstr "proceso"
 
-#: tools/alignments/cli.py:57
+#: tools/alignments/cli.py:61
 #, python-brace-format
 msgid ""
 "R|Choose which action you want to perform. NB: All actions require an "
 "alignments file (-a) to be passed in.\n"
 "L|'draw': Draw landmarks on frames in the selected folder/video. A subfolder "
 "will be created within the frames folder to hold the output.{0}\n"
+"L|'export': Export the contents of an alignments file to a json file. Can be "
+"used for editing alignment information in external tools and then re-"
+"importing by using Faceswap's Extract 'Import' plugins. Note: masks and "
+"identity vectors will not be included in the exported file, so will be re-"
+"generated when the json file is imported back into Faceswap. All data is "
+"exported with the origin (0, 0) at the top left of the canvas.\n"
 "L|'extract': Re-extract faces from the source frames/video based on "
 "alignment data. This is a lot quicker than re-detecting faces. Can pass in "
 "the '-een' (--extract-every-n) parameter to only extract every nth frame."
 "{1}\n"
 "L|'from-faces': Generate alignment file(s) from a folder of extracted faces. "
 "if the folder of faces comes from multiple sources, then multiple alignments "
-"files will be created. NB: for faces which have been extracted folders of "
-"source images, rather than a video, a single alignments file will be created "
-"as there is no way for the process to know how many folders of images were "
-"originally used. You do not need to provide an alignments file path to run "
-"this job. {3}\n"
+"files will be created. NB: for faces which have been extracted from folders "
+"of source images, rather than a video, a single alignments file will be "
+"created as there is no way for the process to know how many folders of "
+"images were originally used. You do not need to provide an alignments file "
+"path to run this job. {3}\n"
 "L|'missing-alignments': Identify frames that do not exist in the alignments "
 "file.{2}{0}\n"
 "L|'missing-frames': Identify frames in the alignments file that do not "
@@ -110,6 +116,14 @@ msgstr ""
 "L|'draw': Dibuja puntos de referencia en los fotogramas de la carpeta o "
 "vídeo seleccionado. Se creará una subcarpeta dentro de la carpeta de "
 "fotogramas para guardar el resultado.{0}\n"
+"L|'export': Exportar el contenido de un archivo de alineaciones a un archivo "
+"JSON. Se puede utilizar para editar información de alineación en "
+"herramientas externas y luego volver a importar mediante el uso de "
+"complementos de 'import' de extracto de Faceswap. Nota: Las máscaras y los "
+"vectores de identidad no se incluirán en el archivo exportado, por lo que se "
+"volverán a generar cuando el archivo JSON se importe a FacesWap. Todos los "
+"datos se exportan con el origen (0, 0) en la parte superior izquierda del "
+"lienzo.\n"
 "L|'extract': Reextrae las caras de los fotogramas o vídeos de origen "
 "basándose en los datos de alineación. Esto es mucho más rápido que volver a "
 "detectar las caras. Se puede pasar el parámetro '-een' (--extract-every-n) "
@@ -142,7 +156,7 @@ msgstr ""
 "L|'spatial': Realiza un filtrado espacial y temporal para suavizar las "
 "alineaciones (¡EXPERIMENTAL!)"
 
-#: tools/alignments/cli.py:96
+#: tools/alignments/cli.py:107
 msgid ""
 "R|How to output discovered items ('faces' and 'frames' only):\n"
 "L|'console': Print the list of frames to the screen. (DEFAULT)\n"
@@ -158,37 +172,80 @@ msgstr ""
 "L|'move': Mueve los elementos descubiertos a una subcarpeta dentro del "
 "directorio de origen."
 
-#: tools/alignments/cli.py:107 tools/alignments/cli.py:118
-#: tools/alignments/cli.py:125
+#: tools/alignments/cli.py:118 tools/alignments/cli.py:141
+#: tools/alignments/cli.py:148
 msgid "data"
 msgstr "datos"
 
-#: tools/alignments/cli.py:111
+#: tools/alignments/cli.py:125
 msgid ""
-"Full path to the alignments file to be processed. This is required for all "
-"jobs except for 'from-faces' when the alignments file will be generated in "
-"the specified faces folder."
+"Full path to the alignments file to be processed. If you have input a "
+"'frames_dir' and don't provide this option, the process will try to find the "
+"alignments file at the default location. All jobs require an alignments file "
+"with the exception of 'from-faces' when the alignments file will be "
+"generated in the specified faces folder."
 msgstr ""
-"Ruta completa del archivo de alineaciones a procesar. Esto es necesario para "
-"todos los trabajos excepto para 'caras desde' cuando el archivo de "
-"alineaciones se generará en la carpeta de caras especificada."
+"Ruta completa al archivo de alineaciones a procesar. Si ingresó un "
+"'frames_dir' y no proporciona esta opción, el proceso intentará encontrar el "
+"archivo de alineaciones en la ubicación predeterminada. Todos los trabajos "
+"requieren un archivo de alineaciones con la excepción de 'from-faces' cuando "
+"el archivo de alineaciones se generará en la carpeta de caras especificada."
 
-#: tools/alignments/cli.py:119
-msgid "Directory containing extracted faces."
-msgstr "Directorio que contiene las caras extraídas."
-
-#: tools/alignments/cli.py:126
+#: tools/alignments/cli.py:142
 msgid "Directory containing source frames that faces were extracted from."
 msgstr ""
 "Directorio que contiene los fotogramas de origen de los que se extrajeron "
 "las caras."
 
-#: tools/alignments/cli.py:135 tools/alignments/cli.py:146
-#: tools/alignments/cli.py:156
+#: tools/alignments/cli.py:150
+msgid ""
+"R|Run the aligmnents tool on multiple sources. The following jobs support "
+"batch mode:\n"
+"L|draw, extract, from-faces, missing-alignments, missing-frames, no-faces, "
+"sort, spatial.\n"
+"If batch mode is selected then the other options should be set as follows:\n"
+"L|alignments_file: For 'sort' and 'spatial' this should point to the parent "
+"folder containing the alignments files to be processed. For all other jobs "
+"this option is ignored, and the alignments files must exist at their default "
+"location relative to the original frames folder/video.\n"
+"L|faces_dir: For 'from-faces' this should be a parent folder, containing sub-"
+"folders of extracted faces from which to generate alignments files. For "
+"'extract' this should be a parent folder where sub-folders will be created "
+"for each extraction to be run. For all other jobs this option is ignored.\n"
+"L|frames_dir: For 'draw', 'extract', 'missing-alignments', 'missing-frames' "
+"and 'no-faces' this should be a parent folder containing video files or sub-"
+"folders of images to perform the alignments job on. The alignments file "
+"should exist at the default location. For all other jobs this option is "
+"ignored."
+msgstr ""
+"R|Ejecute la herramienta de alineación en varias fuentes. Los siguientes "
+"trabajos admiten el modo por lotes:\n"
+"L|draw, extract, from-faces, missing-alignments, missing-frames, no-faces, "
+"sort, spatial.\n"
+"Si se selecciona el modo por lotes, las otras opciones deben configurarse de "
+"la siguiente manera:\n"
+"L|alignments_file: para 'sort' y 'spatial', debe apuntar a la carpeta "
+"principal que contiene los archivos de alineación que se van a procesar. "
+"Para todos los demás trabajos, esta opción se ignora y los archivos de "
+"alineaciones deben existir en su ubicación predeterminada en relación con la "
+"carpeta/video de fotogramas originales.\n"
+"L|faces_dir: para 'from-faces', esta debe ser una carpeta principal que "
+"contenga subcarpetas de caras extraídas desde las cuales generar archivos de "
+"alineación. Para 'extraer', esta debe ser una carpeta principal donde se "
+"crearán subcarpetas para cada extracción que se ejecute. Para todos los "
+"demás trabajos, esta opción se ignora.\n"
+"L|frames_dir: para 'draw', 'extract', 'missing-alignments', 'missing-frames' "
+"y 'no-faces', esta debe ser una carpeta principal que contenga archivos de "
+"video o subcarpetas de imágenes para realizar el trabajo de alineaciones en. "
+"El archivo de alineaciones debe existir en la ubicación predeterminada. Para "
+"todos los demás trabajos, esta opción se ignora."
+
+#: tools/alignments/cli.py:176 tools/alignments/cli.py:188
+#: tools/alignments/cli.py:198
 msgid "extract"
 msgstr "extracción"
 
-#: tools/alignments/cli.py:136
+#: tools/alignments/cli.py:178
 msgid ""
 "[Extract only] Extract every 'nth' frame. This option will skip frames when "
 "extracting faces. For example a value of 1 will extract faces from every "
@@ -199,11 +256,11 @@ msgstr ""
 "caras de cada fotograma, un valor de 10 extraerá las caras de cada 10 "
 "fotogramas."
 
-#: tools/alignments/cli.py:147
+#: tools/alignments/cli.py:189
 msgid "[Extract only] The output size of extracted faces."
 msgstr "[Sólo extracción] El tamaño de salida de las caras extraídas."
 
-#: tools/alignments/cli.py:157
+#: tools/alignments/cli.py:200
 msgid ""
 "[Extract only] Only extract faces that have been resized by this percent or "
 "more to meet the specified extract size (`-sz`, `--size`). Useful for "
@@ -222,6 +279,9 @@ msgstr ""
 "establece en 100, solo se extraerán las caras que se hayan redimensionado "
 "desde 512 px o más. Una configuración de 200 solo extraerá las caras que se "
 "han reducido de 1024 px o más."
+
+#~ msgid "Directory containing extracted faces."
+#~ msgstr "Directorio que contiene las caras extraídas."
 
 #~ msgid "Full path to the alignments file to be processed."
 #~ msgstr "Ruta completa del archivo de alineaciones a procesar."

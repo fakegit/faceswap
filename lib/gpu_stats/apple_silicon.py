@@ -1,32 +1,33 @@
 #!/usr/bin/env python3
-""" Collects and returns Information on available Apple Silicon SoCs in Apple Macs. """
-from typing import List, Optional
+"""Collects and returns Information on available Apple Silicon SoCs in Apple Macs."""
+import typing as T
 
 import os
 import psutil
-import tensorflow as tf
+import torch
 
-from lib.utils import FaceswapError
+from lib.utils import FaceswapError, get_module_objects
 
-from ._base import GPUStats
+
+from ._base import _GPUStats
 
 
 _METAL_INITIALIZED: bool = False
 
 
-class AppleSiliconStats(GPUStats):
-    """ Holds information and statistics about Apple Silicon SoC(s) available on the currently
+class AppleSiliconStats(_GPUStats):
+    """Holds information and statistics about Apple Silicon SoC(s) available on the currently
     running Apple system.
 
     Notes
     -----
     Apple Silicon is a bit different from other backends, as it does not have a dedicated GPU with
     it's own dedicated VRAM, rather the RAM is shared with the CPU and GPU. A combination of psutil
-    and Tensorflow are used to pull as much useful information as possible.
+    and torch are used to pull as much useful information as possible.
 
     Parameters
     ----------
-    log: bool, optional
+    log
         Whether the class should output information to the logger. There may be occasions where the
         logger has not yet been set up when this class is queried. Attempting to log in these
         instances will raise an error. If GPU stats are being queried prior to the logger being
@@ -35,12 +36,12 @@ class AppleSiliconStats(GPUStats):
     """
     def __init__(self, log: bool = True) -> None:
         # Following attribute set in :func:``_initialize``
-        self._tf_devices: Optional(List[str]) = None
+        self._mps_devices: list[T.Any] = []
 
         super().__init__(log=log)
 
     def _initialize(self) -> None:
-        """ Initialize Metal for Apple Silicon SoC(s).
+        """Initialize Metal for Apple Silicon SoC(s).
 
         If :attr:`_is_initialized` is ``True`` then this function just returns performing no
         action. Otherwise :attr:`is_initialized` is set to ``True`` after successfully
@@ -51,15 +52,13 @@ class AppleSiliconStats(GPUStats):
         self._log("debug", "Initializing Metal for Apple Silicon SoC.")
         self._initialize_metal()
 
-        self._tf_devices = tf.config.list_physical_devices(device_type="GPU")
+        self._mps_devices = [torch.device("mps")]
 
         super()._initialize()
 
     def _initialize_metal(self) -> None:
-        """ Initialize Metal on first call to this class and set global
-        :attr:``_METAL_INITIALIZED`` to ``True``. If Metal has already been initialized then return
-        performing no action.
-        """
+        """Initialize Metal on first call to this class and set global :attr:``_METAL_INITIALIZED``
+        to ``True``. If Metal has already been initialized then return performing no action."""
         global _METAL_INITIALIZED  # pylint:disable=global-statement
 
         if _METAL_INITIALIZED:
@@ -74,42 +73,40 @@ class AppleSiliconStats(GPUStats):
         except Exception as err:  # pylint:disable=broad-except
             self._log("debug", f"Swallowing error opening XQuartz: {str(err)}")
 
-        self._test_tensorflow()
+        self._test_torch()
 
         _METAL_INITIALIZED = True
 
-    def _test_tensorflow(self) -> None:
-        """ Test that tensorflow can execute correctly.
+    def _test_torch(self) -> None:
+        """Test that torch can execute correctly.
 
         Raises
         ------
         FaceswapError
-            If the Tensorflow library could not be successfully initialized
+            If the Torch library could not be successfully initialized
         """
         try:
-            meminfo = tf.config.experimental.get_memory_info('GPU:0')
-            devices = tf.config.list_logical_devices()
+            meminfo = torch.mps.driver_allocated_memory()
             self._log("debug",
-                      f"Tensorflow initialization test: (mem_info: {meminfo}, devices: {devices}")
+                      f"Torch initialization test: (mem_info: {meminfo})")
         except RuntimeError as err:
-            msg = ("An unhandled exception occured initializing the device via Tensorflow "
+            msg = ("An unhandled exception occurred initializing the device via Torch "
                    f"Library. Original error: {str(err)}")
             raise FaceswapError(msg) from err
 
     def _get_device_count(self) -> int:
-        """ Detect the number of SoCs attached to the system.
+        """Detect the number of SoCs attached to the system.
 
         Returns
         -------
-        int
-            The total number of SoCs available
+        The total number of SoCs available
         """
-        retval = len(self._tf_devices)
+        retval = len(self._mps_devices)
         self._log("debug", f"GPU Device count: {retval}")
         return retval
 
     def _get_handles(self) -> list:
-        """ Obtain the device handles for all available Apple Silicon SoCs.
+        """Obtain the device handles for all available Apple Silicon SoCs.
 
         Notes
         -----
@@ -118,15 +115,14 @@ class AppleSiliconStats(GPUStats):
 
         Returns
         -------
-        list
-            The list of indices for available Apple Silicon SoCs
+        The list of indices for available Apple Silicon SoCs
         """
         handles = list(range(self._device_count))
         self._log("debug", f"GPU Handles found: {handles}")
         return handles
 
     def _get_driver(self) -> str:
-        """ Obtain the Apple Silicon driver version currently in use.
+        """Obtain the Apple Silicon driver version currently in use.
 
         Notes
         -----
@@ -135,57 +131,61 @@ class AppleSiliconStats(GPUStats):
 
         Returns
         -------
-        str
-            The current SoC driver version
+        The current SoC driver version
         """
         driver = "Not Applicable"
         self._log("debug", f"GPU Driver: {driver}")
         return driver
 
-    def _get_device_names(self) -> List[str]:
-        """ Obtain the list of names of available Apple Silicon SoC(s) as identified in
+    def _get_device_names(self) -> list[str]:
+        """Obtain the list of names of available Apple Silicon SoC(s) as identified in
         :attr:`_handles`.
 
         Returns
         -------
-        list
-            The list of available Apple Silicon SoC names
+        The list of available Apple Silicon SoC names
         """
-        names = [d.name for d in self._tf_devices]
+        names = [d.type for d in self._mps_devices]
         self._log("debug", f"GPU Devices: {names}")
         return names
 
-    def _get_vram(self) -> List[float]:
-        """ Obtain the VRAM in Megabytes for each available Apple Silicon SoC(s) as identified in
+    def _get_vram(self) -> list[int]:
+        """Obtain the VRAM in Megabytes for each available Apple Silicon SoC(s) as identified in
         :attr:`_handles`.
-
-        Notes
-        -----
-        `tf.config.experimental.get_memory_info('GPU:0')` does not work, so uses psutil instead.
-        The total memory on the system is returned as it is shared between the CPU and the GPU.
-        There is no dedicated VRAM.
 
         Returns
         -------
-        list
-            The RAM in Megabytes for each available Apple Silicon SoC
+        The RAM in Megabytes for each available Apple Silicon SoC
         """
-        vram = [(psutil.virtual_memory().total / self._device_count) / (1024 * 1024)
+        vram = [int((torch.mps.driver_allocated_memory() / self._device_count) / (1024 * 1024))
                 for _ in range(self._device_count)]
         self._log("debug", f"SoC RAM: {vram}")
         return vram
 
-    def _get_free_vram(self) -> List[float]:
-        """ Obtain the amount of VRAM that is available, in Megabytes, for each available Apple
+    def _get_free_vram(self) -> list[int]:
+        """Obtain the amount of VRAM that is available, in Megabytes, for each available Apple
         Silicon SoC.
 
         Returns
         -------
-        list
-             List of `float`s containing the amount of RAM available, in Megabytes, for each
-             available SoC as corresponding to the values in :attr:`_handles
+        List of `float`s containing the amount of RAM available, in Megabytes, for each available
+        SoC as corresponding to the values in :attr:`_handles
         """
-        vram = [(psutil.virtual_memory().available / self._device_count) / (1024 * 1024)
+        vram = [int((psutil.virtual_memory().available / self._device_count) / (1024 * 1024))
                 for _ in range(self._device_count)]
         self._log("debug", f"SoC RAM free: {vram}")
         return vram
+
+    def exclude_devices(self, devices: list[int]) -> None:
+        """Apple-Silicon does not support excluding devices
+
+        Parameters
+        ----------
+        devices
+            The GPU device IDS to be excluded
+        """
+        self._log("warning", "Apple Silicon does not support excluding GPUs. This option has been "
+                             "ignored")
+
+
+__all__ = get_module_objects(__name__)

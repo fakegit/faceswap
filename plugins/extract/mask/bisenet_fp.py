@@ -1,83 +1,78 @@
 #!/usr/bin/env python3
-""" BiSeNet Face-Parsing mask plugin
+"""BiSeNet Face-Parsing mask plugin
 
 Architecture and Pre-Trained Model ported from PyTorch to Keras by TorzDF from
 https://github.com/zllrunning/face-parsing.PyTorch
 """
+from __future__ import annotations
+import logging
+import typing as T
+
 import numpy as np
+import torch
+from torch import nn
+from torch.nn import functional as F
 
-from lib.model.session import KSession
-from lib.utils import get_backend
-from plugins.extract._base import _get_config
-from ._base import Masker, logger
+from lib.utils import get_module_objects, GetModel
+from plugins.extract.base import FacePlugin
+from . import bisenet_fp_defaults as cfg
 
-if get_backend() == "amd":
-    from keras import backend as K
-    from keras.layers import (
-        Activation, Add, BatchNormalization, Concatenate, Conv2D, GlobalAveragePooling2D, Input,
-        MaxPooling2D, Multiply, Reshape, UpSampling2D, ZeroPadding2D)
-else:
-    # Ignore linting errors from Tensorflow's thoroughly broken import system
-    from tensorflow.keras import backend as K  # pylint:disable=import-error
-    from tensorflow.keras.layers import (  # pylint:disable=no-name-in-module,import-error
-        Activation, Add, BatchNormalization, Concatenate, Conv2D, GlobalAveragePooling2D, Input,
-        MaxPooling2D, Multiply, Reshape, UpSampling2D, ZeroPadding2D)
+if T.TYPE_CHECKING:
+    from torch import Tensor
+
+logger = logging.getLogger(__name__)
+# pylint:disable=duplicate-code
 
 
-class Mask(Masker):
-    """ Neural network to process face image into a segmentation mask of the face """
-    def __init__(self, **kwargs):
-        self._is_faceswap, version = self._check_weights_selection(kwargs.get("configfile"))
-
-        git_model_id = 14
-        model_filename = f"bisnet_face_parsing_v{version}.h5"
-        super().__init__(git_model_id=git_model_id, model_filename=model_filename, **kwargs)
-
-        self.name = "BiSeNet - Face Parsing"
-        self.input_size = 512
-        self.color_format = "RGB"
-        self.vram = 2304
-        self.vram_warnings = 256
-        self.vram_per_batch = 64
-        self.batchsize = self.config["batch-size"]
-
+class BiSeNetFP(FacePlugin):
+    """Neural network to process face image into a segmentation mask of the face"""
+    def __init__(self) -> None:
+        super().__init__(input_size=512,
+                         batch_size=cfg.batch_size(),
+                         is_rgb=True,
+                         dtype="float32",
+                         scale=(0, 1),
+                         force_cpu=cfg.cpu(),
+                         centering="head" if cfg.include_hair() else "face")
+        self.model: BiSeNet
+        self._is_faceswap, self._git_version = self._check_weights_selection()
         self._segment_indices = self._get_segment_indices()
-        self._storage_centering = "head" if self.config["include_hair"] else "face"
+        self._storage_centering = "head" if cfg.include_hair() else "face"
+        """The mask type/storage centering to use"""
         # Separate storage for face and head masks
-        self._storage_name = f"{self._storage_name}_{self._storage_centering}"
+        self.storage_name = f"{self.storage_name}_{self.centering}"
 
-    def _check_weights_selection(self, configfile):
-        """ Check which weights have been selected.
+        mean = (0.384, 0.314, 0.279) if self._is_faceswap else (0.485, 0.456, 0.406)
+        std = (0.324, 0.286, 0.275) if self._is_faceswap else (0.229, 0.224, 0.225)
+        self._mean = np.array(mean, dtype="float32")
+        self._std = np.array(std, dtype="float32")
+
+    def _check_weights_selection(self) -> tuple[bool, int]:
+        """Check which weights have been selected.
 
         This is required for passing along the correct file name for the corresponding weights
-        selection, so config needs to be loaded and scanned prior to parent loading it.
-
-        Parameters
-        ----------
-        configfile: str
-            Path to a custom configuration ``ini`` file. ``None`` to use system configfile
+        selection.
 
         Returns
         -------
-        tuple (bool, int)
-            First position is ``True`` if `faceswap` trained weights have been selected.
-            ``False`` if `original` weights have been selected.
-            Second position is the version of the model to use (``1`` for non-faceswap, ``1`` if
-            faceswap and full-head model is required. ``3`` if faceswap and full-face is required)
+        is_faceswap
+            ``True`` if `faceswap` trained weights have been selected. ``False`` if `original`
+            weights have been selected.
+        version
+            ``1`` for non-faceswap, ``2`` if faceswap and full-head model is required. ``3`` if
+            faceswap and full-face is required
         """
-        config = _get_config(".".join(self.__module__.split(".")[-2:]), configfile=configfile)
-        is_faceswap = config.get("weights", "faceswap").lower() == "faceswap"
-        version = 1 if not is_faceswap else 2 if config.get("include_hair") else 3
+        is_faceswap = cfg.weights() == "faceswap"
+        version = 4 if not is_faceswap else 5 if cfg.include_hair() else 6
         return is_faceswap, version
 
-    def _get_segment_indices(self):
-        """ Obtain the segment indices to include within the face mask area based on user
+    def _get_segment_indices(self) -> list[int]:
+        """Obtain the segment indices to include within the face mask area based on user
         configuration settings.
 
         Returns
         -------
-        list
-            The segment indices to include within the face mask area
+        The segment indices to include within the face mask area
 
         Notes
         -----
@@ -91,49 +86,71 @@ class Mask(Masker):
         """
         retval = [1] if self._is_faceswap else [1, 2, 3, 4, 5, 10, 11, 12, 13]
 
-        if self.config["include_glasses"]:
+        if cfg.include_glasses():
             retval.append(4 if self._is_faceswap else 6)
-        if self.config["include_ears"]:
+        if cfg.include_ears():
             retval.extend([2] if self._is_faceswap else [7, 8, 9])
-        if self.config["include_hair"]:
+        if cfg.include_hair():
             retval.append(3 if self._is_faceswap else 17)
         logger.debug("Selected segment indices: %s", retval)
         return retval
 
-    def init_model(self):
-        """ Initialize the BiSeNet Face Parsing model. """
-        lbls = 5 if self._is_faceswap else 19
-        self.model = BiSeNet(self.model_path,
-                             self.config["allow_growth"],
-                             self._exclude_gpus,
-                             self.input_size,
-                             lbls)
+    def load_model(self) -> BiSeNet:
+        """Initialize the BiSeNet Face Parsing model.
 
-        placeholder = np.zeros((self.batchsize, self.input_size, self.input_size, 3),
-                               dtype="float32")
-        self.model.predict(placeholder)
+        Returns
+        -------
+        The loaded BiSeNetFP model
+        """
+        weights = GetModel(f"bisenet_face_parsing_v{self._git_version}.pth", 14).model_path
+        assert isinstance(weights, str)
+        return T.cast(BiSeNet, self.load_torch_model(BiSeNet(5 if self._is_faceswap else 19),
+                                                     weights,
+                                                     return_indices=[0]))
 
-    def process_input(self, batch):
-        """ Compile the detected faces for prediction """
-        mean = (0.384, 0.314, 0.279) if self._is_faceswap else (0.485, 0.456, 0.406)
-        std = (0.324, 0.286, 0.275) if self._is_faceswap else (0.229, 0.224, 0.225)
+    def pre_process(self, batch: np.ndarray) -> np.ndarray:
+        """Format the detected faces for prediction
 
-        batch["feed"] = ((np.array([feed.face[..., :3]
-                                    for feed in batch["feed_faces"]],
-                                   dtype="float32") / 255.0) - mean) / std
-        logger.trace("feed shape: %s", batch["feed"].shape)
-        return batch
+        Parameters
+        ----------
+        batch
+            The batch of aligned faces in the correct format for the model
 
-    def predict(self, batch):
-        """ Run model to get predictions """
-        batch["prediction"] = self.model.predict(batch["feed"])[0]
-        return batch
+        Returns
+        -------
+        The updated images for feeding the model
+        """
+        return ((batch - self._mean) / self._std).transpose(0, 3, 1, 2)
 
-    def process_output(self, batch):
-        """ Compile found faces for output """
-        pred = batch["prediction"].argmax(-1).astype("uint8")
-        batch["prediction"] = np.isin(pred, self._segment_indices).astype("float32")
-        return batch
+    def process(self, batch: np.ndarray) -> np.ndarray:
+        """Get the masks from the model
+
+        Parameters
+        ----------
+        batch
+            The batch to feed into the masker
+
+        Returns
+        -------
+
+            The predicted masks from the plugin
+        """
+        return self.from_torch(batch).transpose(0, 2, 3, 1)
+
+    def post_process(self, batch: np.ndarray) -> np.ndarray:
+        """Process the output from the model
+
+        Parameters
+        ----------
+        batch
+            The predictions from the masker
+
+        Returns
+        -------
+        The final masks
+        """
+        pred = batch.argmax(-1).astype("uint8")
+        return np.isin(pred, self._segment_indices).astype("float32")
 
 # BiSeNet Face-Parsing Model
 
@@ -160,421 +177,351 @@ class Mask(Masker):
 # SOFTWARE.
 
 
-_NAME_TRACKER = set()
-
-
-def _get_name(name, start_idx=1):
-    """ Auto numbering to keep track of layer names.
-
-    Names are kept the same as the PyTorch original model, to enable easier porting of weights.
-
-    Names are tracked and auto-appended with an integer to ensure they are unique.
+# Resnet18
+class BasicBlock(nn.Module):
+    """The basic building block for ResNet 18.
 
     Parameters
     ----------
-    name: str
-        The name of the layer to get auto named.
-    start_idx
-        The first index number to start auto naming layers with the same name. Usually 0 or 1.
-        Pass -1 if the name should not be auto-named (i.e. should not have an integer appended
-        to the end)
-
-    Returns
-    -------
-    str
-        A unique version of the original name
-    """
-    i = start_idx
-    while True:
-        retval = f"{name}{i}" if i != -1 else name
-        if retval not in _NAME_TRACKER:
-            break
-        i += 1
-    _NAME_TRACKER.add(retval)
-    return retval
-
-
-class ConvBn():  # pylint:disable=too-few-public-methods
-    """ Convolutional 3D with Batch Normalization block.
-
-    Parameters
-    ----------
-    filters: int
+    in_channels
+        The number of input channels
+    filters
         The dimensionality of the output space (i.e. the number of output filters in the
         convolution).
-    kernel_size: int, optional
-        The height and width of the 2D convolution window. Default: `3`
-    strides: int, optional
+    stride
         The strides of the convolution along the height and width. Default: `1`
-    padding: int, optional
-        The amount of padding to apply prior to the first Convolutional Layer. Default: `1`
-    activation: bool
-        Whether to include ReLu Activation at the end of the block. Default: ``True``
-    prefix: str, optional
-        The prefix to name the layers within the block. Default: ``""`` (empty string, i.e. no
-        prefix)
-    start_idx: int, optional
-        The starting index for naming the layers within the block. See :func:`_get_name` for
-        more information. Default: `1`
     """
-    def __init__(self, filters,
-                 kernel_size=3, strides=1, padding=1, activation=True, prefix="", start_idx=1):
-        self._filters = filters
-        self._kernel_size = kernel_size
-        self._strides = strides
-        self._padding = padding
-        self._activation = activation
-        self._prefix = f"{prefix}." if prefix else prefix
-        self._start_idx = start_idx
+    def __init__(self, in_channels: int, filters: int, stride: int = 1):
+        super().__init__()
+        self.conv1 = nn.Conv2d(in_channels, filters, 3, stride=stride, padding=1, bias=False)
+        self.bn1 = nn.BatchNorm2d(filters)
+        self.conv2 = nn.Conv2d(filters, filters, 3, stride=1, padding=1, bias=False)
+        self.bn2 = nn.BatchNorm2d(filters)
+        self.relu = nn.ReLU(inplace=True)
+        self.downsample = None
+        if in_channels != filters or stride != 1:
+            self.downsample = nn.Sequential(
+                nn.Conv2d(in_channels, filters, 1, stride=stride, bias=False),
+                nn.BatchNorm2d(filters),
+                )
 
-    def __call__(self, inputs):
-        """ Call the Convolutional Batch Normalization block.
+    def forward(self, inputs: Tensor) -> Tensor:
+        """Call the ResNet 18 basic block.
 
         Parameters
         ----------
-        inputs: tensor
+        inputs
             The input to the block
 
         Returns
         -------
-        tensor
-            The output from the block
+        The output from the block
         """
-        var_x = inputs
-        if self._padding > 0 and self._kernel_size != 1:
-            var_x = ZeroPadding2D(self._padding,
-                                  name=_get_name(f"{self._prefix}zeropad",
-                                                 start_idx=self._start_idx))(var_x)
-        padding = "valid" if self._padding != -1 else "same"
-        var_x = Conv2D(self._filters,
-                       self._kernel_size,
-                       strides=self._strides,
-                       padding=padding,
-                       use_bias=False,
-                       name=_get_name(f"{self._prefix}conv", start_idx=self._start_idx))(var_x)
-        var_x = BatchNormalization(epsilon=1e-5,
-                                   name=_get_name(f"{self._prefix}bn",
-                                                  start_idx=self._start_idx))(var_x)
-        if self._activation:
-            var_x = Activation("relu",
-                               name=_get_name(f"{self._prefix}relu",
-                                              start_idx=self._start_idx))(var_x)
-        return var_x
+        residual = F.relu(self.bn1(self.conv1(inputs)))
+        residual = self.bn2(self.conv2(residual))
+        shortcut = inputs if self.downsample is None else self.downsample(inputs)
+        out = self.relu(shortcut + residual)
+        return out
 
 
-class ResNet18():  # pylint:disable=too-few-public-methods
-    """ ResNet 18 block. Used at the start of BiSeNet Face Parsing. """
+class ResNet18(nn.Module):
+    """ResNet 18 block. Used at the start of BiSeNet Face Parsing. """
     def __init__(self):
-        self._feature_index = 1 if K.image_data_format() == "channels_first" else -1
+        super().__init__()
+        self.conv1 = nn.Conv2d(3, 64, 7, stride=2, padding=3, bias=False)
+        self.bn1 = nn.BatchNorm2d(64)
+        self.maxpool = nn.MaxPool2d(3, stride=2, padding=1)
+        self.layer1 = self._basic_layer(64, 64, 2, stride=1)
+        self.layer2 = self._basic_layer(64, 128, 2, stride=2)
+        self.layer3 = self._basic_layer(128, 256, 2, stride=2)
+        self.layer4 = self._basic_layer(256, 512, 2, stride=2)
 
-    def _basic_block(self, inputs, prefix, filters, strides=1):
-        """ The basic building block for ResNet 18.
-
-        Parameters
-        ----------
-        inputs: tensor
-            The input to the block
-        prefix: str
-            The prefix to name the layers within the block
-        filters: int
-            The dimensionality of the output space (i.e. the number of output filters in the
-            convolution).
-        strides: int, optional
-            The strides of the convolution along the height and width. Default: `1`
-
-        Returns
-        -------
-        tensor
-            The output from the block
-        """
-        res = ConvBn(filters, strides=strides, padding=1, prefix=prefix)(inputs)
-        res = ConvBn(filters, strides=1, padding=1, activation=False, prefix=prefix)(res)
-
-        shortcut = inputs
-        filts = (K.int_shape(shortcut)[self._feature_index], K.int_shape(res)[self._feature_index])
-        if strides != 1 or filts[0] != filts[1]:  # Downsample
-            name = f"{prefix}.downsample."
-            shortcut = Conv2D(filters, 1,
-                              strides=strides,
-                              use_bias=False,
-                              name=_get_name(f"{name}", start_idx=0))(shortcut)
-            shortcut = BatchNormalization(epsilon=1e-5,
-                                          name=_get_name(f"{name}", start_idx=0))(shortcut)
-
-        var_x = Add(name=f"{prefix}.add")([res, shortcut])
-        var_x = Activation("relu", name=f"{prefix}.relu")(var_x)
-        return var_x
-
-    def _basic_layer(self, inputs, prefix, filters, num_blocks, strides=1):
-        """ The basic layer for ResNet 18. Recursively builds from :func:`_basic_block`.
+    @classmethod
+    def _basic_layer(cls,
+                     in_channels: int,
+                     filters: int,
+                     num_blocks: int,
+                     stride: int = 1) -> nn.Sequential:
+        """The basic layer for ResNet 18. Recursively builds from :func:`_basic_block`.
 
         Parameters
         ----------
-        inputs: tensor
-            The input to the block
-        prefix: str
-            The prefix to name the layers within the block
-        filters: int
+        in_channels
+            The number of input channels
+        filters
             The dimensionality of the output space (i.e. the number of output filters in the
             convolution).
-        num_blocks: int
+        num_blocks
             The number of basic blocks to recursively build
-        strides: int, optional
+        stride
             The strides of the convolution along the height and width. Default: `1`
 
         Returns
         -------
-        tensor
-            The output from the block
+        The basic layer module
         """
-        var_x = self._basic_block(inputs, f"{prefix}.0", filters, strides=strides)
-        for i in range(num_blocks - 1):
-            var_x = self._basic_block(var_x, f"{prefix}.{i + 1}", filters, strides=1)
-        return var_x
+        layers = [BasicBlock(in_channels, filters, stride=stride)]
+        for _ in range(num_blocks - 1):
+            layers.append(BasicBlock(filters, filters, stride=1))
+        return nn.Sequential(*layers)
 
-    def __call__(self, inputs):
-        """ Call the ResNet 18 block.
+    def forward(self, inputs: Tensor) -> tuple[Tensor, Tensor, Tensor]:
+        """Call the ResNet 18 block.
 
         Parameters
         ----------
-        inputs: tensor
-            The input to the block
+        inputs
+            The input to the ResNet 18
 
         Returns
         -------
-        tensor
-            The output from the block
+        The feature outputs from ResNet 18
         """
-        var_x = ConvBn(64, kernel_size=7, strides=2, padding=3, prefix="cp.resnet")(inputs)
-        var_x = ZeroPadding2D(1, name="cp.resnet.zeropad")(var_x)
-        var_x = MaxPooling2D(pool_size=3, strides=2, name="cp.resnet.maxpool")(var_x)
-
-        var_x = self._basic_layer(var_x, "cp.resnet.layer1", 64, 2)
-        feat8 = self._basic_layer(var_x, "cp.resnet.layer2", 128, 2, strides=2)
-        feat16 = self._basic_layer(feat8, "cp.resnet.layer3", 256, 2, strides=2)
-        feat32 = self._basic_layer(feat16, "cp.resnet.layer4", 512, 2, strides=2)
-
+        x = self.maxpool(F.relu(self.bn1(self.conv1(inputs))))
+        feat8 = self.layer2(self.layer1(x))
+        feat16 = self.layer3(feat8)
+        feat32 = self.layer4(feat16)
         return feat8, feat16, feat32
 
 
-class AttentionRefinementModule():  # pylint:disable=too-few-public-methods
-    """ The Attention Refinement block for BiSeNet Face Parsing
+# bisenet
+class ConvBNReLU(nn.Module):
+    """Convolutional 3D with Batch Normalization block.
 
     Parameters
     ----------
-    filters: int
+    in_channels
+        The number of input channels
+    filters
         The dimensionality of the output space (i.e. the number of output filters in the
         convolution).
+    kernel_size
+        The height and width of the 2D convolution window. Default: `3`
+    strides
+        The strides of the convolution along the height and width. Default: `1`
+    padding
+        The amount of padding to apply prior to the first Convolutional Layer. Default: `1`
     """
-    def __init__(self, filters):
-        self._filters = filters
+    def __init__(self,
+                 in_channels: int,
+                 filters: int,
+                 kernel_size: int = 3,
+                 strides: int = 1,
+                 padding: int = 1) -> None:
+        super().__init__()
+        self.conv = nn.Conv2d(in_channels,
+                              filters,
+                              kernel_size,
+                              stride=strides,
+                              padding=padding,
+                              bias=False)
+        self.bn = nn.BatchNorm2d(filters)
 
-    def __call__(self, inputs, feats):
-        """ Call the Attention Refinement block.
-
-        Parameters
-        ----------
-        inputs: tensor
-            The input to the block
-        feats: int
-            The number of features. Used for naming.
-
-        Returns
-        -------
-        tensor
-            The output from the block
-        """
-        prefix = f"cp.arm{feats}"
-        feat = ConvBn(self._filters, prefix=f"{prefix}.conv", start_idx=-1, padding=-1)(inputs)
-        atten = GlobalAveragePooling2D(name=f"{prefix}.avgpool")(feat)
-        atten = Reshape((1, 1, K.int_shape(atten)[-1]))(atten)
-        atten = Conv2D(self._filters, 1, use_bias=False, name=f"{prefix}.conv_atten")(atten)
-        atten = BatchNormalization(epsilon=1e-5, name=f"{prefix}.bn_atten")(atten)
-        atten = Activation("sigmoid", name=f"{prefix}.sigmoid")(atten)
-        var_x = Multiply(name=f"{prefix}.mul")([feat, atten])
-        return var_x
-
-
-class ContextPath():  # pylint:disable=too-few-public-methods
-    """ The Context Path block for BiSeNet Face Parsing. """
-    def __init__(self):
-        self._resnet = ResNet18()
-
-    def __call__(self, inputs):
-        """ Call the Context Path block.
+    def forward(self, inputs: Tensor) -> Tensor:
+        """Call the Convolutional Batch Normalization block.
 
         Parameters
         ----------
-        inputs: tensor
+        inputs
             The input to the block
 
         Returns
         -------
-        tensor
-            The output from the block
+        The output from the block
         """
-        feat8, feat16, feat32 = self._resnet(inputs)
-
-        avg = GlobalAveragePooling2D(name="cp.avgpool")(feat32)
-        avg = Reshape((1, 1, K.int_shape(avg)[-1]))(avg)
-        avg = ConvBn(128, kernel_size=1, padding=0, prefix="cp.conv_avg", start_idx=-1)(avg)
-
-        avg_up = UpSampling2D(size=K.int_shape(feat32)[1:3], name="cp.upsample")(avg)
-
-        feat32 = AttentionRefinementModule(128)(feat32, 32)
-        feat32 = Add(name="cp.add")([feat32, avg_up])
-        feat32 = UpSampling2D(name="cp.upsample1")(feat32)
-        feat32 = ConvBn(128, kernel_size=3, prefix="cp.conv_head32", start_idx=-1)(feat32)
-
-        feat16 = AttentionRefinementModule(128)(feat16, 16)
-        feat16 = Add(name="cp.add2")([feat16, feat32])
-        feat16 = UpSampling2D(name="cp.upsample2")(feat16)
-        feat16 = ConvBn(128, kernel_size=3, prefix="cp.conv_head16", start_idx=-1)(feat16)
-
-        return feat8, feat16, feat32
+        return F.relu(self.bn(self.conv(inputs)))
 
 
-class FeatureFusionModule():  # pylint:disable=too-few-public-methods
-    """ The Feature Fusion block for BiSeNet Face Parsing
+class BiSeNetOutput(nn.Module):
+    """The BiSeNet Output block for Face Parsing
 
     Parameters
     ----------
-    filters: int
+    in_channels
+        The number of input channels
+    filters
         The dimensionality of the output space (i.e. the number of output filters in the
         convolution).
-    """
-    def __init__(self, filters):
-        self._filters = filters
-
-    def __call__(self, inputs):
-        """ Call the Feature Fusion block.
-
-        Parameters
-        ----------
-        inputs: tensor
-            The input to the block
-
-        Returns
-        -------
-        tensor
-            The output from the block
-        """
-        feat = Concatenate(name="ffm.concat")(inputs)
-        feat = ConvBn(self._filters,
-                      kernel_size=1,
-                      padding=0,
-                      prefix="ffm.convblk",
-                      start_idx=-1)(feat)
-
-        atten = GlobalAveragePooling2D(name="ffm.avgpool")(feat)
-        atten = Reshape((1, 1, K.int_shape(atten)[-1]))(atten)
-        atten = Conv2D(self._filters // 4, 1, use_bias=False, name="ffm.conv1")(atten)
-        atten = Activation("relu", name="ffm.relu")(atten)
-        atten = Conv2D(self._filters, 1, use_bias=False, name="ffm.conv2")(atten)
-        atten = Activation("sigmoid", name="ffm.sigmoid")(atten)
-
-        var_x = Multiply(name="ffm.mul")([feat, atten])
-        var_x = Add(name="ffm.add")([var_x, feat])
-        return var_x
-
-
-class BiSeNetOutput():  # pylint:disable=too-few-public-methods
-    """ The BiSeNet Output block for Face Parsing
-
-    Parameters
-    ----------
-    filters: int
-        The dimensionality of the output space (i.e. the number of output filters in the
-        convolution).
-    num_class: int
+    num_class
         The number of classes to generate
-    label, str, optional
-        The label for this output (for naming). Default: `""` (i.e. empty string, or no label)
     """
-    def __init__(self, filters, num_classes, label=""):
-        self._filters = filters
-        self._num_classes = num_classes
-        self._label = label
+    def __init__(self, in_channels: int, filters: int, num_classes: int) -> None:
+        super().__init__()
+        self.conv1 = ConvBNReLU(in_channels, filters, kernel_size=3, strides=1, padding=1)
+        self.conv_out = nn.Conv2d(filters, num_classes, 1, bias=False)
 
-    def __call__(self, inputs):
-        """ Call the BiSeNet Output block.
+    def forward(self, inputs: Tensor) -> Tensor:
+        """Call the BiSeNet Output block.
 
         Parameters
         ----------
-        inputs: tensor
+        inputs
             The input to the block
 
         Returns
         -------
-        tensor
-            The output from the block
+        The output from the block
         """
-        var_x = ConvBn(self._filters, prefix=f"conv_out{self._label}.conv", start_idx=-1)(inputs)
-        var_x = Conv2D(self._num_classes, 1,
-                       use_bias=False, name=f"conv_out{self._label}.conv_out")(var_x)
-        return var_x
+        return self.conv_out(self.conv1(inputs))
 
 
-class BiSeNet(KSession):
-    """ BiSeNet Face-Parsing Mask from https://github.com/zllrunning/face-parsing.PyTorch
-
-    PyTorch model implemented in Keras by TorzDF
+class AttentionRefinementModule(nn.Module):
+    """The Attention Refinement block for BiSeNet Face Parsing
 
     Parameters
     ----------
-    model_path: str
-        The path to the keras model file
-    allow_growth: bool
-        Enable the Tensorflow GPU allow_growth configuration option. This option prevents
-        Tensorflow from allocating all of the GPU VRAM, but can lead to higher fragmentation and
-        slower performance
-    exclude_gpus: list
-        A list of indices correlating to connected GPUs that Tensorflow should not use. Pass
-        ``None`` to not exclude any GPUs
-    input_size: int
-        The input size to the model
-    num_classes: int
+    in_channels
+        The number of input channels to the block
+    filters
+        The dimensionality of the output space (i.e. the number of output filters in the
+        convolution).
+    """
+    def __init__(self, in_channels: int, filters: int) -> None:
+        super().__init__()
+        self.conv = ConvBNReLU(in_channels, filters, kernel_size=3, strides=1, padding=1)
+        self.conv_atten = nn.Conv2d(filters, filters, kernel_size=1, bias=False)
+        self.bn_atten = nn.BatchNorm2d(filters)
+        self.sigmoid_atten = nn.Sigmoid()
+
+    def forward(self, inputs: Tensor) -> Tensor:
+        """Call the Attention Refinement block.
+
+        Parameters
+        ----------
+        inputs
+            The input to the block
+
+        Returns
+        -------
+        The output from the block
+        """
+        feat = self.conv(inputs)
+        attention = F.avg_pool2d(feat, feat.size()[2:])  # pylint:disable=not-callable
+        attention = self.sigmoid_atten(self.bn_atten(self.conv_atten(attention)))
+        out = torch.mul(feat, attention)
+        return out
+
+
+class ContextPath(nn.Module):
+    """The Context Path block for BiSeNet Face Parsing. """
+    def __init__(self):
+        super().__init__()
+        self.resnet = ResNet18()
+        self.arm16 = AttentionRefinementModule(256, 128)
+        self.arm32 = AttentionRefinementModule(512, 128)
+        self.conv_head32 = ConvBNReLU(128, 128, kernel_size=3, strides=1, padding=1)
+        self.conv_head16 = ConvBNReLU(128, 128, kernel_size=3, strides=1, padding=1)
+        self.conv_avg = ConvBNReLU(512, 128, kernel_size=1, strides=1, padding=0)
+
+    def forward(self, inputs: Tensor) -> tuple[Tensor, Tensor, Tensor]:
+        """Call the Context Path block.
+
+        Parameters
+        ----------
+        inputs
+            The input to the block
+
+        Returns
+        -------
+        The feature outputs from ResNet 18
+        """
+        feat8, feat16, feat32 = self.resnet(inputs)
+        dim_8 = feat8.size()[2:]
+        dim_16 = feat16.size()[2:]
+        dim_32 = feat32.size()[2:]
+        avg = F.interpolate(self.conv_avg(F.avg_pool2d(feat32,  # pylint:disable=not-callable
+                                                       feat32.size()[2:])),
+                            dim_32,
+                            mode='nearest')
+        feat32 = self.conv_head32(F.interpolate(self.arm32(feat32) + avg, dim_16, mode='nearest'))
+        feat16 = self.conv_head16(F.interpolate(self.arm16(feat16) + feat32,
+                                                dim_8,
+                                                mode='nearest'))
+        return feat8, feat16, feat32
+
+
+class FeatureFusionModule(nn.Module):
+    """The Feature Fusion block for BiSeNet Face Parsing
+
+    Parameters
+    ----------
+    in_channels
+        The number of input channels to the module
+    filters
+        The dimensionality of the output space (i.e. the number of output filters in the
+        convolution).
+    """
+    def __init__(self, in_channels: int, filters: int) -> None:
+        super().__init__()
+        self.convblk = ConvBNReLU(in_channels, filters, kernel_size=1, strides=1, padding=0)
+        self.conv1 = nn.Conv2d(filters, filters // 4, 1, stride=1, padding=0, bias=False)
+        self.conv2 = nn.Conv2d(filters // 4, filters, 1, stride=1, padding=0, bias=False)
+        self.relu = nn.ReLU(inplace=True)
+        self.sigmoid = nn.Sigmoid()
+
+    def forward(self, feat_spatial: Tensor, feat_context: Tensor) -> Tensor:
+        """Call the Feature Fusion block.
+
+        Parameters
+        ----------
+        feat_spatial
+            The spatial features input to the block
+        feat_context
+            The context features input to the block
+
+        Returns
+        -------
+        The output from the block
+        """
+        feat = self.convblk(torch.cat([feat_spatial, feat_context], dim=1))
+        attention = self.sigmoid(self.conv2(self.relu(self.conv1(
+            F.avg_pool2d(feat, feat.size()[2:])))))  # pylint:disable=not-callable
+
+        return torch.mul(feat, attention) + feat
+
+
+class BiSeNet(nn.Module):
+    """BiSeNet Face-Parsing Mask from https://github.com/zllrunning/face-parsing.PyTorch
+
+    PyTorch model implemented in Keras and then back to pytorch by TorzDF, because why not?
+
+    Parameters
+    ----------
+    num_classes
         The number of segmentation classes to create
     """
-    def __init__(self, model_path, allow_growth, exclude_gpus, input_size, num_classes):
-        super().__init__("BiSeNet Face Parsing",
-                         model_path,
-                         allow_growth=allow_growth,
-                         exclude_gpus=exclude_gpus)
-        self._input_size = input_size
-        self._num_classes = num_classes
-        self._cp = ContextPath()
-        self.define_model(self._model_definition)
-        self.load_model_weights()
+    def __init__(self, num_classes: int) -> None:
+        super().__init__()
+        self.cp = ContextPath()
+        self.ffm = FeatureFusionModule(256, 256)
+        self.conv_out = BiSeNetOutput(256, 256, num_classes)
+        self.conv_out16 = BiSeNetOutput(128, 64, num_classes)
+        self.conv_out32 = BiSeNetOutput(128, 64, num_classes)
+        logger.debug("Initialized: %s", self.__class__.__name__)
 
-    def _model_definition(self):
-        """ Definition of the VGG Obstructed Model.
+    def forward(self, inputs: Tensor) -> tuple[Tensor, Tensor, Tensor]:
+        """Get predictions from the BiSeNet-FP model
+
+        Parameters
+        ----------
+        inputs
+            The input to BiSeNet-FP
 
         Returns
         -------
-        tuple
-            The tensor input to the model and tensor output to the model for compilation by
-            :func`define_model`
+        The outputs from BiSeNet-FP
         """
-        input_ = Input((self._input_size, self._input_size, 3))
+        dims = inputs.size()[2:]
+        feat_sp, feat_cp8, feat_cp16 = self.cp(inputs)
+        feat_fuse = self.ffm(feat_sp, feat_cp8)
 
-        feat_res8, feat_cp8, feat_cp16 = self._cp(input_)
-        feat_fuse = FeatureFusionModule(256)([feat_res8, feat_cp8])
+        feats = [self.conv_out(feat_fuse),
+                 self.conv_out16(feat_cp8),
+                 self.conv_out32(feat_cp16)]
+        output = tuple(F.interpolate(feat, dims, mode='bilinear', align_corners=True)
+                       for feat in feats)
+        assert len(output) == 3
+        return output
 
-        feat_out = BiSeNetOutput(256, self._num_classes)(feat_fuse)
-        feat_out16 = BiSeNetOutput(64, self._num_classes, label="16")(feat_cp8)
-        feat_out32 = BiSeNetOutput(64, self._num_classes, label="32")(feat_cp16)
 
-        height, width = K.int_shape(input_)[1:3]
-        f_h, f_w = K.int_shape(feat_out)[1:3]
-        f_h16, f_w16 = K.int_shape(feat_out16)[1:3]
-        f_h32, f_w32 = K.int_shape(feat_out32)[1:3]
-
-        feat_out = UpSampling2D(size=(height // f_h, width // f_w),
-                                interpolation="bilinear")(feat_out)
-        feat_out16 = UpSampling2D(size=(height // f_h16, width // f_w16),
-                                  interpolation="bilinear")(feat_out16)
-        feat_out32 = UpSampling2D(size=(height // f_h32, width // f_w32),
-                                  interpolation="bilinear")(feat_out32)
-
-        return input_, [feat_out, feat_out16, feat_out32]
+__all__ = get_module_objects(__name__)

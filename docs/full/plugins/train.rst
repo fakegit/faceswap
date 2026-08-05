@@ -4,41 +4,64 @@ train package
 
 The Train Package handles the Model and Trainer plugins for training models in Faceswap.
 
-
 .. contents:: Contents
    :local:
 
-model._base module
-==================
+model package
+=============
 
-.. rubric:: Module Summary
+This package contains various helper functions that plugins can inherit from
 
-.. autosummary::
-   :nosignatures:
+.. automodapi:: plugins.train.model._base.inference
+   :include-all-objects:
+   :no-inheritance-diagram:
 
-   ~plugins.train.model._base.KerasModel
-   ~plugins.train.model._base.ModelBase
-   ~plugins.train.model._base.State
+.. automodapi:: plugins.train.model._base.io
+   :include-all-objects:
+   :no-inheritance-diagram:
 
-.. rubric:: Module
+|
+.. automodapi:: plugins.train.model._base.model
+   :include-all-objects:
+   :no-inheritance-diagram:
 
-.. automodule:: plugins.train.model._base
-   :members:
-   :undoc-members:
-   :show-inheritance:
+|
+.. automodapi:: plugins.train.model._base.settings
+   :include-all-objects:
+   :no-inheritance-diagram:
 
-model.original module
-=====================
+|
+.. automodapi:: plugins.train.model._base.state
+   :include-all-objects:
+   :no-inheritance-diagram:
 
-.. automodule:: plugins.train.model.original
-   :members:
-   :undoc-members:
-   :show-inheritance:
+|
+.. automodapi:: plugins.train.model._base.update
+   :include-all-objects:
+   :no-inheritance-diagram:
 
-trainer._base module
-====================
+|
+.. automodapi:: plugins.train.model.original
+   :include-all-objects:
 
-.. automodule:: plugins.train.trainer._base
-   :members:
-   :undoc-members:
-   :show-inheritance:
+
+trainer package
+===============
+
+This package contains the training loop for Faceswap
+
+.. automodapi:: plugins.train.trainer.base
+   :include-all-objects:
+   :no-inheritance-diagram:
+
+|
+.. automodapi:: plugins.train.trainer.distributed
+   :include-all-objects:
+
+|
+.. automodapi:: plugins.train.trainer.original
+   :include-all-objects:
+
+|
+.. automodapi:: plugins.train.trainer.trainer_config
+   :include-all-objects:

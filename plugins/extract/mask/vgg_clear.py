@@ -1,81 +1,160 @@
 #!/usr/bin/env python3
-""" VGG Clear face mask plugin. """
+"""VGG Clear face mask plugin."""
+from __future__ import annotations
+import logging
+import typing as T
 
 import numpy as np
+from torch import nn
+from torch.nn import functional as F
 
-from lib.model.session import KSession
-from lib.utils import get_backend
-from ._base import Masker, logger
+from lib.utils import get_module_objects, GetModel
+from plugins.extract.base import FacePlugin
+from . import vgg_clear_defaults as cfg
 
-if get_backend() == "amd":
-    from keras.layers import (
-        Add, Conv2D, Conv2DTranspose, Cropping2D, Dropout, Input, Lambda, MaxPooling2D,
-        ZeroPadding2D)
-else:
-    # Ignore linting errors from Tensorflow's thoroughly broken import system
-    from tensorflow.keras.layers import (  # pylint:disable=no-name-in-module,import-error
-        Add, Conv2D, Conv2DTranspose, Cropping2D, Dropout, Input, Lambda, MaxPooling2D,
-        ZeroPadding2D)
+if T.TYPE_CHECKING:
+    from torch import Tensor
+
+logger = logging.getLogger(__name__)
+# pylint:disable=duplicate-code
 
 
-class Mask(Masker):
-    """ Neural network to process face image into a segmentation mask of the face """
-    def __init__(self, **kwargs):
-        git_model_id = 8
-        model_filename = "Nirkin_300_softmax_v1.h5"
-        super().__init__(git_model_id=git_model_id, model_filename=model_filename, **kwargs)
-        self.name = "VGG Clear"
-        self.input_size = 300
-        self.vram = 2944
-        self.vram_warnings = 1088  # at BS 1. OOMs at higher batch sizes
-        self.vram_per_batch = 400
-        self.batchsize = self.config["batch-size"]
+class VGGClear(FacePlugin):
+    """Neural network to process face image into a segmentation mask of the face"""
+    def __init__(self) -> None:
+        super().__init__(input_size=300,
+                         batch_size=cfg.batch_size(),
+                         is_rgb=False,
+                         dtype="float32",
+                         scale=(0, 255),
+                         centering="face")
+        self.model: VGGClearModel
 
-    def init_model(self):
-        self.model = VGGClear(self.model_path,
-                              allow_growth=self.config["allow_growth"],
-                              exclude_gpus=self._exclude_gpus)
-        self.model.append_softmax_activation(layer_index=-1)
-        placeholder = np.zeros((self.batchsize, self.input_size, self.input_size, 3),
-                               dtype="float32")
-        self.model.predict(placeholder)
+    def load_model(self) -> VGGClearModel:
+        """Initialize the VGG Clear Mask model.
 
-    def process_input(self, batch):
-        """ Compile the detected faces for prediction """
-        input_ = np.array([feed.face[..., :3]
-                           for feed in batch["feed_faces"]], dtype="float32")
-        batch["feed"] = input_ - np.mean(input_, axis=(1, 2))[:, None, None, :]
-        logger.trace("feed shape: %s", batch["feed"].shape)
-        return batch
+        Returns
+        -------
+        The loaded VGGClear model
+        """
+        weights = GetModel("Nirkin_300_softmax_v2.pth", 8).model_path
+        assert isinstance(weights, str)
+        return T.cast(VGGClearModel, self.load_torch_model(VGGClearModel(),
+                                                           weights,
+                                                           return_indices=[-1]))
 
-    def predict(self, batch):
-        """ Run model to get predictions """
-        predictions = self.model.predict(batch["feed"])
-        batch["prediction"] = predictions[..., -1]
-        return batch
+    def pre_process(self, batch: np.ndarray) -> np.ndarray:
+        """Format the detected faces for prediction
 
-    def process_output(self, batch):
-        """ Compile found faces for output """
-        return batch
+        Parameters
+        ----------
+        batch
+            The batch of aligned faces in the correct format for the model
+
+        Returns
+        -------
+        The updated images for feeding the model
+        """
+        return (batch - np.mean(batch, axis=(1, 2))[:, None, None, :]).transpose(0, 3, 1, 2)
+
+    def process(self, batch: np.ndarray) -> np.ndarray:
+        """Get the masks from the model
+
+        Parameters
+        ----------
+        batch
+            The batch to feed into the masker
+
+        Returns
+        -------
+        The predicted masks from the plugin
+        """
+        return self.from_torch(batch)
 
 
-class VGGClear(KSession):
-    """ VGG Clear mask for Faceswap.
-
-    Caffe model re-implemented in Keras by Kyle Vrooman.
-    Re-implemented for Tensorflow 2 by TorzDF
+class ConvBlock(nn.Module):
+    """Convolutional loop with max pooling layer for VGG Clear.
 
     Parameters
     ----------
-    model_path: str
-        The path to the keras model file
-    allow_growth: bool
-        Enable the Tensorflow GPU allow_growth configuration option. This option prevents
-        Tensorflow from allocating all of the GPU VRAM, but can lead to higher fragmentation and
-        slower performance
-    exclude_gpus: list
-        A list of indices correlating to connected GPUs that Tensorflow should not use. Pass
-        ``None`` to not exclude any GPUs
+    in_channels
+        The number of input channels to the model
+    filters
+        The number of filters that should appear in each Conv2D layer
+    iterations
+        The number of consecutive Conv2D layers to create
+    padding
+        The amount of padding to apply to the first convolution
+    """
+    def __init__(self, in_channels: int, filters: int, iterations: int, padding: int = 1) -> None:
+        super().__init__()
+        layers = [nn.Conv2d(in_channels, filters, 3, padding=padding),
+                  nn.ReLU(inplace=True)]
+        for _ in range(iterations - 1):
+            layers.append(nn.Conv2d(filters, filters, 3, padding=1))
+            layers.append(nn.ReLU(inplace=True))
+        self.convs = nn.Sequential(*layers)
+        self._pool_padding = 0 if in_channels == filters else padding
+
+    def forward(self, inputs: Tensor) -> Tensor:
+        """Call the convolutional loop.
+
+        Parameters
+        ----------
+        inputs
+            The input tensor to the block
+
+        Returns
+        -------
+
+            The output tensor from the convolutional block
+        """
+        x = self.convs(inputs)
+        x = F.max_pool2d(x, 2, stride=2, padding=self._pool_padding)
+        return x
+
+
+class ScorePool(nn.Module):
+    """Cropped scaling of the pooling layer.
+
+    Parameters
+    ----------
+    in_channels
+        The number of input channels to the model
+    scale : float
+        The scaling to apply to the pool
+    crop : tuple[int, int]
+        The amount of 2D cropping to apply. Tuple of (Left/Top, Right/Bottom) `ints`
+    """
+    def __init__(self, in_channels: int, scale: float, crop: tuple[int, int]) -> None:
+        super().__init__()
+        self._scale = scale
+        self.conv = nn.Conv2d(in_channels, 2, 1)
+        self._crop = crop
+
+    def forward(self, inputs: Tensor) -> Tensor:
+        """Call the score pool layer.
+
+        Parameters
+        ----------
+        inputs
+            The input tensor to the block
+
+        Returns
+        -------
+        The output tensor from the block
+        """
+        x = inputs * self._scale
+        x = self.conv(x)
+        x = x[:, :, self._crop[0]:-self._crop[1], self._crop[0]:-self._crop[1]]
+        return x
+
+
+class VGGClearModel(nn.Module):  # pylint:disable=too-many-instance-attributes
+    """VGG Clear mask for Faceswap.
+
+    Caffe model re-implemented in Keras by Kyle Vrooman.
+    Re-implemented for torch by TorzDF
 
     References
     ----------
@@ -87,141 +166,59 @@ class VGGClear(KSession):
     https://github.com/YuvalNirkin/face_segmentation/releases/download/1.1/face_seg_fcn8s_300_no_aug.zip
 
     """
-    def __init__(self, model_path, allow_growth, exclude_gpus):
-        super().__init__("VGG Obstructed",
-                         model_path,
-                         allow_growth=allow_growth,
-                         exclude_gpus=exclude_gpus)
-        self.define_model(self._model_definition)
-        self.load_model_weights()
+    def __init__(self) -> None:
+        super().__init__()
+        self.zeropad = nn.ZeroPad2d(100)
+        self.conv1 = ConvBlock(3, 64, 2, padding=0)
+        self.conv2 = ConvBlock(64, 128, 2)
+        self.conv3 = ConvBlock(128, 256, 3)
+        self.conv4 = ConvBlock(256, 512, 3)
+        self.conv5 = ConvBlock(512, 512, 3)
+        self.fc6 = nn.Conv2d(512, 4096, 7)
+        self.fc7 = nn.Conv2d(4096, 4096, 1)
+        self.score_fr_r = nn.Conv2d(4096, 2, 1)
+        self.upscore2_r = nn.ConvTranspose2d(2, 2, 4, stride=2, bias=False)
+        self.score_pool4 = ScorePool(512, 0.01, (5, 5))
+        self.upscore_pool4_r = nn.ConvTranspose2d(2, 2, 4, stride=2, bias=False)
+        self.score_pool3 = ScorePool(256, 0.0001, (9, 8))
+        self.upscore8_r = nn.ConvTranspose2d(2, 2, 16, stride=8, bias=False)
 
-    @classmethod
-    def _model_definition(cls):
-        """ Definition of the VGG Obstructed Model.
-
-        Returns
-        -------
-        tuple
-            The tensor input to the model and tensor output to the model for compilation by
-            :func`define_model`
-        """
-        input_ = Input(shape=(300, 300, 3))
-        var_x = ZeroPadding2D(padding=((100, 100), (100, 100)), name="zero_padding2d_1")(input_)
-
-        var_x = _ConvBlock(1, 64, 2)(var_x)
-        var_x = _ConvBlock(2, 128, 2)(var_x)
-        pool3 = _ConvBlock(3, 256, 3)(var_x)
-        pool4 = _ConvBlock(4, 512, 3)(pool3)
-        var_x = _ConvBlock(5, 512, 3)(pool4)
-
-        score_pool3 = _ScorePool(3, 0.0001, (9, 8))(pool3)
-        score_pool4 = _ScorePool(4, 0.01, (5, 5))(pool4)
-
-        var_x = Conv2D(4096, 7, activation="relu", name="fc6")(var_x)
-        var_x = Dropout(rate=0.5, name="drop6")(var_x)
-        var_x = Conv2D(4096, 1, activation="relu", name="fc7")(var_x)
-        var_x = Dropout(rate=0.5, name="drop7")(var_x)
-        var_x = Conv2D(2, 1, activation="linear", name="score_fr_r")(var_x)
-        var_x = Conv2DTranspose(2,
-                                4,
-                                strides=2,
-                                activation="linear",
-                                use_bias=False, name="upscore2_r")(var_x)
-
-        var_x = Add(name="fuse_pool4")([var_x, score_pool4])
-        var_x = Conv2DTranspose(2,
-                                4,
-                                strides=2,
-                                activation="linear",
-                                use_bias=False,
-                                name="upscore_pool4_r")(var_x)
-        var_x = Add(name="fuse_pool3")([var_x, score_pool3])
-        var_x = Conv2DTranspose(2,
-                                16,
-                                strides=8,
-                                activation="linear",
-                                use_bias=False,
-                                name="upscore8_r")(var_x)
-        var_x = Cropping2D(cropping=((31, 45), (31, 45)), name="score")(var_x)
-        return input_, var_x
-
-
-class _ConvBlock():  # pylint:disable=too-few-public-methods
-    """ Convolutional loop with max pooling layer for VGG Clear.
-
-    Parameters
-    ----------
-    level: int
-        For naming. The current level for this convolutional loop
-    filters: int
-        The number of filters that should appear in each Conv2D layer
-    iterations: int
-        The number of consecutive Conv2D layers to create
-    """
-    def __init__(self, level, filters, iterations):
-        self._name = f"conv{level}_"
-        self._level = level
-        self._filters = filters
-        self._iterator = range(1, iterations + 1)
-
-    def __call__(self, inputs):
-        """ Call the convolutional loop.
+    def forward(self, inputs: Tensor) -> Tensor:
+        """Call the VGG Clear Model.
 
         Parameters
         ----------
-        inputs: tensor
-            The input tensor to the block
+        inputs
+            The input to the model
 
         Returns
         -------
-        tensor
-            The output tensor from the convolutional block
+        The output from the VGG-Clear model
         """
-        var_x = inputs
-        for i in self._iterator:
-            padding = "valid" if self._level == i == 1 else "same"
-            var_x = Conv2D(self._filters,
-                           3,
-                           padding=padding,
-                           activation="relu",
-                           name=f"{self._name}{i}")(var_x)
-        var_x = MaxPooling2D(padding="same",
-                             strides=(2, 2),
-                             name=f"pool{self._level}")(var_x)
-        return var_x
+        x = self.zeropad(inputs)
+        x = self.conv1(x)
+        x = self.conv2(x)
+        pool3 = self.conv3(x)
+        pool4 = self.conv4(pool3)
+        x = self.conv5(pool4)
+
+        x = F.relu(self.fc6(x), inplace=True)
+        x = F.dropout(x, 0.5)
+        x = F.relu(self.fc7(x), inplace=True)
+        x = F.dropout(x, 0.5)
+
+        x = self.score_fr_r(x)
+        x = self.upscore2_r(x)
+        score_pool4 = self.score_pool4(pool4)
+        x = x + score_pool4
+
+        x = self.upscore_pool4_r(x)
+        score_pool3 = self.score_pool3(pool3)
+        x = x + score_pool3
+
+        x = self.upscore8_r(x)
+        x = x[:, :, 31:-45, 31:-45]
+        return F.softmax(x, dim=1).swapaxes(0, 1)
 
 
-class _ScorePool():  # pylint:disable=too-few-public-methods
-    """ Cropped scaling of the pooling layer.
-
-    Parameters
-    ----------
-    level: int
-        For naming. The current level for this score pool
-    scale: float
-        The scaling to apply to the pool
-    crop: tuple
-        The amount of 2D cropping to apply. Tuple of `ints`
-    """
-    def __init__(self, level, scale, crop):
-        self._name = f"_pool{level}"
-        self._cropping = (crop, crop)
-        self._scale = scale
-
-    def __call__(self, inputs):
-        """ Score pool block.
-
-        Parameters
-        ----------
-        inputs: tensor
-            The input tensor to the block
-
-        Returns
-        -------
-        tensor
-            The output tensor from the score pool block
-        """
-        var_x = Lambda(lambda x: x * self._scale, name="scale" + self._name)(inputs)
-        var_x = Conv2D(2, 1, activation="linear", name="score" + self._name + "_r")(var_x)
-        var_x = Cropping2D(cropping=self._cropping, name="score" + self._name + "c")(var_x)
-        return var_x
+__all__ = get_module_objects(__name__)

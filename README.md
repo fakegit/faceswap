@@ -1,4 +1,7 @@
 # deepfakes_faceswap
+
+### Important information for **Patreon** and **PayPal** supporters. Please see this forum post: https://forum.faceswap.dev/viewtopic.php?f=14&t=3120
+
 <p align="center">
   <a href="https://faceswap.dev"><img src="https://i.imgur.com/zHvjHnb.png"></img></a>
 <br />FaceSwap is a tool that utilizes deep learning to recognize and swap faces in pictures and videos.
@@ -10,16 +13,24 @@
 <p align="center">
 <a href="https://www.patreon.com/bePatron?u=23238350"><img src="https://c5.patreon.com/external/logo/become_a_patron_button.png"></img></a>
 &nbsp;&nbsp;&nbsp;&nbsp;<a href="https://discord.gg/FC54sYg"><img src="https://i.imgur.com/gIpztkv.png"></img></a></p>
+
+<p align="center">
+  <a href="https://www.dailymotion.com/video/x810mot"><img src="https://user-images.githubusercontent.com/36920800/178301720-b69841bb-a1ca-4c20-91db-a2a10f5692ca.png"></img></a>
+<br />Emma Stone/Scarlett Johansson FaceSwap using the Phaze-A model
+</p>
+
 <p align="center">
   <a href="https://www.youtube.com/watch?v=r1jng79a5xc"><img src="https://img.youtube.com/vi/r1jng79a5xc/0.jpg"></img></a>
 <br />Jennifer Lawrence/Steve Buscemi FaceSwap using the Villain model
 </p>
 
-[![Build Status](https://travis-ci.org/deepfakes/faceswap.svg?branch=master)](https://travis-ci.org/deepfakes/faceswap) [![Documentation Status](https://readthedocs.org/projects/faceswap/badge/?version=latest)](https://faceswap.readthedocs.io/en/latest/?badge=latest)
+
+![Build Status](https://github.com/deepfakes/faceswap/actions/workflows/pytest.yml/badge.svg) [![Documentation Status](https://readthedocs.org/projects/faceswap/badge/?version=latest)](https://faceswap.readthedocs.io/en/latest/?badge=latest)
 
 Make sure you check out [INSTALL.md](INSTALL.md) before getting started.
 
-- [deepfakes_faceswap](#deepfakes_faceswap)
+- [deepfakes\_faceswap](#deepfakes_faceswap)
+    - [Important information for **Patreon** and **PayPal** supporters. Please see this forum post: https://forum.faceswap.dev/viewtopic.php?f=14\&t=3120](#important-information-for-patreon-and-paypal-supporters-please-see-this-forum-post-httpsforumfaceswapdevviewtopicphpf14t3120)
 - [Manifesto](#manifesto)
   - [FaceSwap has ethical uses.](#faceswap-has-ethical-uses)
 - [How To setup and run the project](#how-to-setup-and-run-the-project)
@@ -42,12 +53,6 @@ Make sure you check out [INSTALL.md](INSTALL.md) before getting started.
   - [For devs](#for-devs)
   - [For non-dev advanced users](#for-non-dev-advanced-users)
   - [For end-users](#for-end-users)
-  - [For haters](#for-haters)
-- [About github.com/deepfakes](#about-githubcomdeepfakes)
-  - [What is this repo?](#what-is-this-repo)
-  - [Why this repo?](#why-this-repo)
-  - [Why is it named 'deepfakes' if it is not /u/deepfakes?](#why-is-it-named-deepfakes-if-it-is-not-udeepfakes)
-  - [What if /u/deepfakes feels bad about that?](#what-if-udeepfakes-feels-bad-about-that)
 - [About machine learning](#about-machine-learning)
   - [How does a computer know how to recognize/shape faces? How does machine learning work? What is a neural network?](#how-does-a-computer-know-how-to-recognizeshape-faces-how-does-machine-learning-work-what-is-a-neural-network)
 
@@ -73,7 +78,7 @@ We are very troubled by the fact that FaceSwap can be used for unethical and dis
 # How To setup and run the project
 FaceSwap is a Python program that will run on multiple Operating Systems including Windows, Linux, and MacOS.
 
-See [INSTALL.md](INSTALL.md) for full installation instructions. You will need a modern GPU with CUDA support for best performance. AMD GPUs are partially supported.
+See [INSTALL.md](INSTALL.md) for full installation instructions. You will need a modern GPU with CUDA support for best performance. Many AMD GPUs are supported through ROCm (Linux).
 
 # Overview
 The project has multiple entry points. You will have to:
@@ -164,25 +169,6 @@ Creator of the Unbalanced and OHR models, as well as expanding various capabilit
  - You can also go to the [faceswap Forum](https://faceswap.dev/forum) and help or get help from others.
  - Be patient. This is a relatively new technology for developers as well. Much effort is already being put into making this program easy to use for the average user. It just takes time!
  - **Notice** Any issue related to running the code has to be opened in the [faceswap Forum](https://faceswap.dev/forum)!
-
-## For haters
-Sorry, no time for that.
-
-# About github.com/deepfakes
-
-## What is this repo?
-It is a community repository for active users.
-
-## Why this repo?
-The joshua-wu repo seems not active. Simple bugs like missing _http://_ in front of urls have not been solved since days.
-
-## Why is it named 'deepfakes' if it is not /u/deepfakes?
- 1. Because a typosquat would have happened sooner or later as project grows
- 2. Because we wanted to recognize the original author
- 3. Because it will better federate contributors and users
-
-## What if /u/deepfakes feels bad about that?
-This is a friendly typosquat, and it is fully dedicated to the project. If /u/deepfakes wants to take over this repo/user and drive the project, he is welcomed to do so (Raise an issue, and he will be contacted on Reddit). Please do not send /u/deepfakes messages for help with the code you find here.
 
 # About machine learning
 
